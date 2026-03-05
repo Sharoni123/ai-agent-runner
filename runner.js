@@ -1,27 +1,34 @@
 import PocketBase from "pocketbase";
 
 const PB_URL = process.env.POCKETBASE_URL;
-const PB_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
-const PB_PASSWORD = process.env.POCKETBASE_ADMIN_PASSWORD;
+const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
+const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
 
-if (!PB_URL || !PB_EMAIL || !PB_PASSWORD) {
-  console.error("Missing env vars: POCKETBASE_URL / POCKETBASE_ADMIN_EMAIL / POCKETBASE_ADMIN_PASSWORD");
+if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
+  console.error("Missing environment variables.");
   process.exit(1);
 }
 
 const pb = new PocketBase(PB_URL);
 
 async function main() {
-  await pb.admins.authWithPassword(PB_EMAIL, PB_PASSWORD);
-  console.log("✅ Agent Runner connected to PocketBase");
+  console.log("Starting agent runner...");
 
-  // Keep the process alive (so Railway won't exit)
+  // התחברות ל-PocketBase
+  await pb.collection("_superusers").authWithPassword(
+    ADMIN_EMAIL,
+    ADMIN_PASS
+  );
+
+  console.log("✅ Connected to PocketBase");
+
+  // שומר את השרת חי
   setInterval(() => {
-    console.log("🟢 heartbeat", new Date().toISOString());
-  }, 30000);
+    console.log("heartbeat", new Date().toISOString());
+  }, 15000);
 }
 
 main().catch((err) => {
-  console.error("❌ Runner error:", err);
+  console.error("Runner error:", err);
   process.exit(1);
 });
