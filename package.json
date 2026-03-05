@@ -1,0 +1,13 @@
+{
+  "name": "ai-agent-runner",
+  "version": "1.0.0",
+  "main": "runner.js",
+  "type": "module",
+  "scripts": {
+    "start": "node runner.js"
+  },
+  "dependencies": {
+    "pocketbase": "^0.21.0",
+    "node-fetch": "^3.3.2"
+  }
+}
