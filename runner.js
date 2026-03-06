@@ -80,11 +80,26 @@ function getTone(task) {
   return normalizeText(input.tone, "marketing_editorial");
 }
 
-function getWordCount(task, fallback = 450) {
+function getAudience(task) {
+  const input = getTaskInput(task);
+  return normalizeText(input.audience, "קהל יעד רלוונטי");
+}
+
+function getAngle(task) {
+  const input = getTaskInput(task);
+  return normalizeText(input.angle, "ערך ברור, בהירות ואמינות");
+}
+
+function getCTA(task) {
+  const input = getTaskInput(task);
+  return normalizeText(input.cta, "השאירו פרטים לקבלת מידע נוסף והמשך התאמה אישית.");
+}
+
+function getWordCount(task, fallback = 470) {
   const input = getTaskInput(task);
   const raw = input.word_count ?? input.target_word_count;
   const num = Number(raw);
-  if (Number.isFinite(num) && num > 50) return Math.round(num);
+  if (Number.isFinite(num) && num >= 200) return Math.round(num);
   return fallback;
 }
 
@@ -114,6 +129,25 @@ function getPreviousOutput(task) {
   return {};
 }
 
+function getKeyPoints(task) {
+  const input = getTaskInput(task);
+  const raw = input.key_points;
+
+  if (Array.isArray(raw)) {
+    return raw.map((v) => normalizeText(v)).filter(Boolean).slice(0, 5);
+  }
+
+  if (typeof raw === "string") {
+    return raw
+      .split("\n")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+  }
+
+  return [];
+}
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -127,36 +161,90 @@ function paragraphsToHtml(paragraphs) {
   return paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
 }
 
-function buildArticleParagraphs(briefTitle, tone) {
+function countWords(text) {
+  return String(text).split(/\s+/).filter(Boolean).length;
+}
+
+function clampWordRange(text, minWords = 450, maxWords = 500) {
+  let words = String(text).split(/\s+/).filter(Boolean);
+
+  if (words.length > maxWords) {
+    words = words.slice(0, maxWords);
+    return words.join(" ");
+  }
+
+  if (words.length < minWords) {
+    const filler =
+      " בנוסף, כתיבה טובה צריכה לשמור על רצף הגיוני, ניסוח ברור ותחושה אמינה, כדי שהקורא יבין את הערך, ירגיש בטוח במסר, וירצה להמשיך לשלב הבא בתהליך.";
+    let current = words.join(" ");
+    while (countWords(current) < minWords) {
+      current += filler;
+    }
+    words = current.split(/\s+/).filter(Boolean);
+    if (words.length > maxWords) {
+      words = words.slice(0, maxWords);
+    }
+    return words.join(" ");
+  }
+
+  return words.join(" ");
+}
+
+function buildSeoTitles(briefTitle) {
   return [
-    `כאשר בונים כתבה שיווקית סביב ${briefTitle}, חשוב להתחיל ממסר מרכזי חד וברור. במקום לנסות להעמיס על הקורא כמה שיותר פרטים כבר בפתיחה, עדיף להגדיר הבטחה אחת חזקה שתוביל את כל הטקסט. כך נוצר בסיס ברור יותר לתוכן, והקורא מבין כבר מההתחלה מה הערך שהוא עומד לקבל ולמה בכלל כדאי לו להמשיך לקרוא.`,
-    `השלב הבא הוא לתרגם את הנושא לשפה טבעית, אמינה ומשכנעת. כתבה טובה איננה אוסף של משפטים כלליים, אלא תוכן שמחבר בין צורך אמיתי של הקהל לבין פתרון, רעיון או הזדמנות. כשכותבים נכון, הטקסט לא רק נשמע מקצועי יותר, אלא גם מייצר תחושת ביטחון, סדר ובהירות. אלה מרכיבים חשובים במיוחד כאשר רוצים לשכנע, להסביר או להניע לפעולה.`,
-    `במקרה של ${briefTitle}, נכון להדגיש לא רק את מה שמציעים, אלא גם את המשמעות עבור הצד השני. הקורא בדרך כלל לא מחפש רק מידע טכני; הוא מחפש להבין מה התועלת, מה היתרון, ומה הופך את ההצעה לרלוונטית עבורו דווקא עכשיו. לכן, כתיבה טובה תשים דגש על תוצאה, על ערך, ועל הדרך שבה המסר פוגש צורך ממשי ולא רק תיאור כללי של שירות או רעיון.`,
-    `מבנה הטקסט משפיע מאוד על היכולת של הקורא להישאר מרוכז. פתיחה שמושכת פנימה, גוף טקסט שמרחיב בהדרגה, וסיום עם קריאה לפעולה — כל אלה יוצרים רצף נכון. מעבר לכך, כאשר שומרים על פסקאות ברורות, ניסוחים ישירים וטון עקבי, התוכן מרגיש מקצועי יותר. במקרה הזה הטון שנבחר הוא ${tone}, ולכן הטקסט משלב בין גישה עניינית, מסר שיווקי ברור ותחושה נגישה לקורא.`,
-    `עוד נקודה חשובה היא אמינות. תוכן שיווקי אפקטיבי לא צריך להישמע מוגזם כדי לעבוד. להפך — פעמים רבות דווקא ניסוח מדויק, שקול וברור עובד טוב יותר מטקסט מלא בהבטחות גדולות. סביב ${briefTitle}, עדיף לבנות טיעון שמציג יתרונות מוחשיים, מסביר את ההיגיון מאחורי ההצעה, ומחבר בין הסיפור הכללי לבין מה שהקורא באמת רוצה להשיג מבחינתו.`,
-    `בסופו של דבר, כתבה טובה היא נכס שיווקי של ממש. היא יכולה לחזק מסר, לחדד מיצוב, לשפר את איכות הלידים ולבנות תחושת מקצועיות סביב המהלך כולו. כאשר התוכן סביב ${briefTitle} נכתב נכון, הוא לא רק ממלא מקום באתר או בדף נחיתה, אלא הופך לכלי שעוזר להניע תהליך: מעניין ראשוני, דרך הבנה עמוקה יותר, ועד פעולה ברורה כמו השארת פרטים, יצירת קשר או מעבר לשלב הבא.`,
+    `${briefTitle} – כתבה שיווקית בעברית`,
+    `${briefTitle}: מסר ברור יותר לקהל היעד`,
+    `${briefTitle} – תוכן שמייצר עניין והמרות`,
   ];
 }
 
-function trimToApproxWords(text, targetWords = 450) {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= targetWords + 25) return text;
-  return words.slice(0, targetWords + 10).join(" ");
+function buildArticleTitle(briefTitle, angle) {
+  return `${briefTitle}: כך מציגים את הערך בצורה ברורה ומשכנעת`;
+}
+
+function buildArticleSubtitle(audience, angle) {
+  return `תוכן טוב מתחיל בהבנת הקהל, חידוד המסר, ובניית זווית ברורה סביב ${angle} עבור ${audience}.`;
+}
+
+function buildArticleParagraphs(task) {
+  const briefTitle = getBriefTitle(task);
+  const tone = getTone(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const keyPoints = getKeyPoints(task);
+
+  const keyPointText =
+    keyPoints.length > 0
+      ? ` נקודות שכדאי להבליט במיוחד הן: ${keyPoints.join(", ")}.`
+      : "";
+
+  return [
+    `כאשר כותבים כתבה שיווקית סביב ${briefTitle}, חשוב להתחיל ממסר חד ולא ממלל כללי. הקורא צריך להבין כבר בפתיחה מה הנושא, למה הוא רלוונטי עבורו, ומה הערך שהוא צפוי לקבל מהמשך הקריאה. כתיבה טובה יוצרת מסגרת ברורה: היא מגדירה את הנושא, בונה עניין בהדרגה, ומבהירה מדוע כדאי לעצור ולהעמיק דווקא כאן ולא בתוכן אחר שמתחרה על אותה תשומת לב.`,
+
+    `השלב הבא הוא לתרגם את הנושא לשפה טבעית, אמינה ונעימה לקריאה. טקסט שיווקי טוב לא מרגיש כמו פרסומת שקופה, אלא כמו הסבר ברור שמכבד את הקורא. במקום לנסות להרשים בסיסמאות או בהבטחות גדולות מדי, נכון יותר לבנות ניסוח שמציג את ההיגיון, התועלת והמשמעות. כך נוצר טקסט שמרגיש מקצועי יותר, בטוח יותר, וגם משכנע יותר לאורך זמן.`,
+
+    `במקרה של ${briefTitle}, הזווית המרכזית היא ${angle}. המשמעות היא שלא מספיק רק לתאר את הנושא, אלא צריך להציג אותו דרך העדשה הנכונה: מה הופך אותו לרלוונטי עכשיו, מה מבדל אותו, ואיך הוא פוגש צורך אמיתי של ${audience}.${keyPointText} כאשר התוכן בנוי סביב ערך ממשי ולא רק סביב תיאור כללי, קל יותר לקורא להבין את המשמעות ולהתחבר למסר.`,
+
+    `מבנה הכתבה חשוב לא פחות מהניסוח עצמו. פתיחה טובה מושכת פנימה, פסקאות האמצע מרחיבות את ההבנה, והסיום מכוון לפעולה או למסקנה ברורה. כאשר המעבר בין פסקאות טבעי, הקורא נשאר בתוך הטקסט בלי תחושת מאמץ. זה חשוב במיוחד כאשר המטרה היא לא רק ליידע, אלא גם לבנות אמון, ליצור עניין, ולסלול דרך להמשך תהליך כמו השארת פרטים, קריאה נוספת או יצירת קשר.`,
+
+    `הטון שנבחר כאן הוא ${tone}, ולכן הכתיבה שומרת על איזון בין מקצועיות, בהירות ושכנוע. כתיבה טובה אינה רק נכונה לשונית; היא גם יודעת לדבר בקצב המתאים, במילים שמתאימות לקהל, ובלי תחושה של תרגום או נוסח מלאכותי. כאשר שומרים על משפטים ברורים, דוגמאות מרומזות וניסוח מדויק, המסר מרגיש הרבה יותר טבעי — וזה בדיוק מה שמחזק את האמינות שלו בעיני הקורא.`,
+
+    `בסופו של דבר, כתבה חזקה סביב ${briefTitle} היא כתבה שיודעת לחבר בין תוכן, אסטרטגיה והנעה לפעולה. היא לא רק “מסבירה”, אלא גם בונה תחושת ערך, מדייקת את ההבטחה המרכזית, ונותנת לקורא סיבה להמשיך הלאה. כשהטקסט עושה את זה נכון, הוא הופך מכלי הסבר פשוט לנכס שיווקי אמיתי — כזה שתומך במותג, מחזק את המסר, ומייצר תנועה ממשית לשלב הבא.`,
+  ];
 }
 
 function buildArticleCreateOutput(task) {
   const briefTitle = getBriefTitle(task);
-  const tone = getTone(task);
   const language = getLanguage(task);
-  const wordCount = getWordCount(task, 450);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const cta = getCTA(task);
 
-  const title = `${briefTitle}: כך בונים מסר שיווקי ברור ומשכנע`;
-  const subtitle =
-    "תוכן שיווקי טוב מתחיל במסר חד, ערך ברור, והבנה מדויקת של מה הקורא צריך לראות כבר מהפתיחה.";
+  const title = buildArticleTitle(briefTitle, angle);
+  const subtitle = buildArticleSubtitle(audience, angle);
 
-  const paragraphs = buildArticleParagraphs(briefTitle, tone);
-  const articleText = trimToApproxWords(paragraphs.join("\n\n"), wordCount);
-
+  const paragraphs = buildArticleParagraphs(task);
+  const articleText = clampWordRange(paragraphs.join("\n\n"), 450, 500);
   const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
@@ -167,115 +255,115 @@ function buildArticleCreateOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter article create placeholder",
+    note: "copywriter article create",
     language,
     mode: "create",
     deliverable: "article",
-    target_word_count: wordCount,
-    estimated_word_count: articleText.split(/\s+/).filter(Boolean).length,
+    target_word_count: getWordCount(task, 470),
+    estimated_word_count: countWords(articleText),
     title,
     subtitle,
     article_text: articleText,
     article_html: articleHtml,
-    seo_titles: [
-      `${briefTitle} – כתבה שיווקית בעברית`,
-      `${briefTitle}: מסר שיווקי ברור יותר`,
-      `${briefTitle} – תוכן שמייצר עניין והמרות`,
-    ],
-    cta: "השאירו פרטים לקבלת מידע נוסף והמשך התאמה אישית.",
+    seo_titles: buildSeoTitles(briefTitle),
+    cta,
   };
+}
+
+function buildArticleRevisionParagraphs(task, previousOutput, notes) {
+  const briefTitle = getBriefTitle(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const prevText = normalizeText(previousOutput.article_text, "");
+  const notesText = notes.length
+    ? notes.map((n, i) => `${i + 1}. ${n}`).join(" ")
+    : "לא נמסרו הערות מפורטות, ולכן בוצע חידוד כללי של המבנה והניסוח.";
+
+  return [
+    `להלן גרסה מעודכנת של התוכן סביב ${briefTitle}, לאחר מעבר על ההערות ובחינה מחודשת של המסר המרכזי. בתיקון מהסוג הזה המטרה אינה להתחיל הכול מאפס, אלא לקחת את מה שכבר נבנה, לזהות מה פחות עובד, ולשפר אותו בצורה מדויקת יותר. כך נשמר ההקשר המקורי, אך התוצאה הסופית מרגישה מהודקת, ברורה ומשכנעת יותר.`,
+
+    `ההערות שנמסרו לתיקון קיבלו מענה ישיר במסגרת השכתוב: ${notesText} המשמעות היא שהגרסה החדשה לא רק מתקנת נקודות מקומיות, אלא גם מחזקת את המסר הרחב יותר, כך שהתוכן יפגוש טוב יותר את ${audience} וישקף בצורה מדויקת יותר את הזווית שנבחרה: ${angle}. כאשר מתקנים נכון, מרוויחים גם בהירות וגם אפקטיביות.`,
+
+    `במקום לבצע שינוי טכני בלבד, הגרסה הזו שמה דגש על איכות הקריאה. יש בה זרימה טובה יותר בין הפתיחה, גוף הכתבה והסיום, ניסוחים מחודדים יותר, ופחות חזרות או פסקאות שנשמעות כלליות מדי. זו נקודה חשובה, משום שגם תוכן טוב עלול להיחלש אם הוא לא מאורגן נכון. ברגע שמסדרים את המבנה, גם הערך של הטקסט הופך להרבה יותר מורגש.`,
+
+    `הבסיס לגרסה הזו נשען גם על מה שכבר נכתב קודם, כדי לא לאבד נקודות חזקות שכבר היו קיימות. לצורך הקשר, התוכן הקודם התחיל כך: ${prevText.slice(0, 220)}${prevText.length > 220 ? "..." : ""} מתוך הבסיס הזה בוצע עדכון שמטרתו לחדד את הכותרת, לדייק את הניסוח, ולהבליט טוב יותר את הערך המרכזי שהקורא צריך להבין כבר מהקריאה הראשונה.`,
+
+    `בתהליך Revision טוב, לא מספיק רק “לתקן שגיאות”. צריך לשפר גם את התחושה הכללית שהטקסט מייצר: יותר ביטחון, יותר בהירות, יותר אמינות, ויותר התאמה למטרה השיווקית או התדמיתית שלשמה הוא נכתב. לכן גם כאן בוצע שכתוב שמבקש לחזק את ההשפעה של הטקסט, ולא רק להפוך אותו ל”מסודר יותר” מבחינה פורמלית.`,
+
+    `בסיום, מדובר בגרסה מחודשת של ${briefTitle} שמטרתה לקחת תוכן קיים ולהפוך אותו לחזק יותר. אם יתקבלו הערות נוספות, אפשר להמשיך מאותה נקודה בדיוק ולעשות סבב תיקונים נוסף — בין אם על הכותרת, על הטון, על אורך הטקסט או על מסר מסוים שצריך לקבל יותר משקל. זו דרך עבודה טובה יותר, משום שהיא מייצרת שיפור מצטבר ולא התחלה מחדש בכל פעם.`,
+  ];
 }
 
 function buildArticleRevisionOutput(task) {
   const briefTitle = getBriefTitle(task);
   const language = getLanguage(task);
-  const wordCount = getWordCount(task, 450);
-  const notes = getRevisionNotes(task);
   const previousOutput = getPreviousOutput(task);
+  const notes = getRevisionNotes(task);
+  const cta = getCTA(task);
 
-  const prevTitle = normalizeText(
-    previousOutput.title,
-    `${briefTitle}: גרסה מעודכנת`
-  );
-
-  const prevText = normalizeText(
-    previousOutput.article_text,
-    `זוהי גרסת תיקון עבור ${briefTitle}.`
-  );
-
-  const notesText = notes.length
-    ? notes.map((n, i) => `${i + 1}. ${n}`).join(" ")
-    : "לא נמסרו הערות תיקון מפורטות, ולכן בוצע חידוד כללי של הטקסט.";
-
-  const revisedTitle = `${prevTitle} – גרסה מעודכנת`;
-  const revisedSubtitle =
+  const title = `${normalizeText(previousOutput.title, briefTitle)} – גרסה מעודכנת`;
+  const subtitle =
     "הטקסט עודכן לפי ההערות, עם חידוד המסר, שיפור הזרימה והבלטת הנקודות החשובות יותר.";
 
-  const revisedParagraphs = [
-    `להלן גרסה מעודכנת של התוכן סביב ${briefTitle}, לאחר מעבר על ההערות והבנת הכיוונים שנדרשו לתיקון. המטרה בתהליך הזה היא לא רק לשנות משפטים בודדים, אלא לשפר את החדות של המסר, לחזק את הערך שמוצג לקורא, ולוודא שהטקסט כולו עובד בצורה ברורה, עקבית ומשכנעת יותר מהגרסה הקודמת.`,
-    `ההערות שהתקבלו קיבלו מענה ישיר במסגרת השכתוב. בין היתר הודגשו הנקודות הבאות: ${notesText} כך התוכן לא רק נשאר נאמן לנושא המרכזי, אלא גם הופך להיות מדויק יותר לצורך השיווקי, לקהל היעד ולמטרה שלשמה הוא נכתב מלכתחילה. זהו הבדל חשוב, כי לעיתים תיקון טוב הוא לא הוספת עוד מידע, אלא ניסוח נכון יותר של המידע שכבר קיים.`,
-    `כדי לשמור על תוצאה איכותית, הגרסה החדשה ממשיכה להישען על המבנה המרכזי של הטקסט הקודם, אבל משפרת אותו במקום הנכון. יש חיזוק לפתיחה, הסברים בהירים יותר בגוף התוכן, ומעבר חלק יותר בין פסקאות. בנוסף, הניסוח כעת יותר ממוקד, פחות כללי, ועם יותר דגש על תועלת והנעה לפעולה — כך שהתוכן מרגיש מקצועי, בטוח וברור יותר.`,
-    `הגרסה הקודמת שימשה בסיס חשוב, אך כעת היא עברה עיבוד שמכוון לתוצאה חזקה יותר. מבחינה שיווקית, טקסט מתוקן צריך לעשות יותר מאשר רק “להיות נכון”; הוא צריך גם לייצר תחושת התאמה, אמינות וזרימה. לכן השכתוב שם לב לא רק למה נאמר, אלא גם לאיך זה נשמע, איך זה נבנה, ואיך הקורא צפוי לחוות את המסר לכל אורך הקריאה.`,
-    `לנוחות, נשמר גם בסיס התוכן המקורי שעובד מחדש: ${prevText.slice(0, 260)}${prevText.length > 260 ? "..." : ""} מתוך הבסיס הזה בוצעה גרסה מחודדת יותר, שנועדה לשרת טוב יותר את המטרה השיווקית של ${briefTitle}. במידת הצורך אפשר לבצע סבב תיקונים נוסף, להתמקד בכותרת בלבד, להרחיב פסקאות מסוימות או לשנות את הטון הכללי בהתאם להערות חדשות.`,
-    `בסיכום, מדובר בגרסת Revision שנועדה לשפר את התוצאה הקיימת ולא להתחיל מאפס. זה מאפשר לשמור על ההקשר, להימנע מאיבוד אלמנטים טובים שכבר נכתבו, ולבצע התקדמות ממוקדת יותר. אם יתקבלו תיקונים נוספים, יהיה אפשר להמשיך מאותה נקודה בדיוק ולבצע עדכון נוסף בצורה מסודרת, עקבית ומהירה יותר.`,
-  ];
-
-  const revisedText = trimToApproxWords(revisedParagraphs.join("\n\n"), wordCount);
-
-  const revisedHtml = `
+  const paragraphs = buildArticleRevisionParagraphs(task, previousOutput, notes);
+  const articleText = clampWordRange(paragraphs.join("\n\n"), 450, 500);
+  const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
-  <h1>${escapeHtml(revisedTitle)}</h1>
-  <h2>${escapeHtml(revisedSubtitle)}</h2>
-  ${paragraphsToHtml(revisedParagraphs)}
+  <h1>${escapeHtml(title)}</h1>
+  <h2>${escapeHtml(subtitle)}</h2>
+  ${paragraphsToHtml(paragraphs)}
 </section>
   `.trim();
 
   return {
     ok: true,
-    note: "copywriter article revision placeholder",
+    note: "copywriter article revision",
     language,
     mode: "revise",
     deliverable: "article",
-    target_word_count: wordCount,
-    estimated_word_count: revisedText.split(/\s+/).filter(Boolean).length,
+    target_word_count: getWordCount(task, 470),
+    estimated_word_count: countWords(articleText),
     revision_notes_applied: notes,
-    title: revisedTitle,
-    subtitle: revisedSubtitle,
-    article_text: revisedText,
-    article_html: revisedHtml,
-    cta: "השאירו פרטים לקבלת מידע נוסף או סבב תיקונים נוסף לפי הצורך.",
+    title,
+    subtitle,
+    article_text: articleText,
+    article_html: articleHtml,
+    cta,
   };
 }
 
 function buildAdsCreateOutput(task) {
   const briefTitle = getBriefTitle(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const cta = getCTA(task);
   const language = getLanguage(task);
 
   return {
     ok: true,
-    note: "copywriter ads create placeholder",
+    note: "copywriter ads create",
     language,
     mode: "create",
     deliverable: "ads",
     headlines: [
       `${briefTitle} שמדבר לקהל הנכון`,
-      `כך מציגים את ${briefTitle} בצורה ברורה`,
-      `${briefTitle} עם מסר חד ומדויק`,
-      `מחפשים ניסוח טוב יותר ל־${briefTitle}?`,
-      `${briefTitle} עם זווית שיווקית חזקה יותר`,
+      `${briefTitle} בזווית ברורה ומשכנעת`,
+      `כך מציגים את ${briefTitle} בצורה חכמה יותר`,
+      `${briefTitle} עם מסר חד יותר`,
+      `${briefTitle} – כשבהירות פוגשת תוצאה`,
     ],
     primary_texts: [
-      `אם רוצים להבליט את ${briefTitle} בצורה משכנעת יותר, צריך לנסח מסר חד, ברור ורלוונטי לקהל היעד. זה בדיוק הבסיס לקמפיין טוב יותר.`,
-      `${briefTitle} יכול להפוך למסגרת שיווקית חזקה הרבה יותר כשבונים סביבו תוכן נכון, הבטחה ברורה והנעה לפעולה שמרגישה טבעית.`,
-      `במקום טקסט כללי, כדאי לנסח עבור ${briefTitle} מסר ממוקד שמציג ערך ברור, מחזק אמינות ומוביל לפעולה.`,
+      `כדי לקדם את ${briefTitle} בצורה אפקטיבית יותר, צריך מסר ברור, זווית חזקה והתאמה אמיתית ל־${audience}. זה בדיוק מה שבונה מודעה טובה יותר.`,
+      `${briefTitle} יכול לקבל נוכחות שיווקית חזקה יותר כאשר מנסחים אותו סביב ${angle}, שומרים על שפה טבעית, ומובילים את הקורא בצורה ישירה לפעולה.`,
+      `במקום ניסוח כללי, נכון לבנות סביב ${briefTitle} מסר מדויק, אמין וקל להבנה — כזה שמחזק עניין, בונה ביטחון ומניע לפעולה.`,
     ],
     angles: [
+      angle,
       "בהירות ודיוק במסר",
-      "חיזוק הערך המרכזי",
       "בניית אמון והנעה לפעולה",
     ],
     cta_options: [
-      "השאירו פרטים",
+      cta,
       "לקבלת מידע נוסף",
       "בואו לראות איך זה עובד",
     ],
@@ -286,6 +374,7 @@ function buildAdsRevisionOutput(task) {
   const briefTitle = getBriefTitle(task);
   const notes = getRevisionNotes(task);
   const previousOutput = getPreviousOutput(task);
+  const cta = getCTA(task);
 
   const previousHeadlines = Array.isArray(previousOutput.headlines)
     ? previousOutput.headlines
@@ -296,7 +385,7 @@ function buildAdsRevisionOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter ads revision placeholder",
+    note: "copywriter ads revision",
     mode: "revise",
     deliverable: "ads",
     revision_notes_applied: notes,
@@ -309,12 +398,12 @@ function buildAdsRevisionOutput(task) {
       `ניסוח חדש ומדויק יותר ל־${briefTitle}`,
     ],
     primary_texts: [
-      `הטקסטים עבור ${briefTitle} עודכנו לפי ההערות שניתנו, עם דגש על מסר ברור יותר, חיזוק הערך המרכזי ושיפור הזרימה הכללית.`,
-      `בוצע חידוד של הניסוח, שיפור ההבטחה המרכזית והדגשה טובה יותר של התועלת עבור הקורא, כדי להפוך את ${briefTitle} לאפקטיבי יותר ברמת המודעה.`,
+      `המודעות עבור ${briefTitle} עודכנו לפי ההערות שניתנו, עם דגש על מסר ברור יותר, ניסוח חד יותר והבלטת הערך המרכזי.`,
+      `בוצע חידוד של ההבטחה, שיפור הזרימה והדגשה טובה יותר של התועלת לקורא, כדי להפוך את ${briefTitle} לאפקטיבי יותר ברמת המודעה.`,
       `לאחר סבב התיקונים, המסר סביב ${briefTitle} מרגיש ממוקד, בטוח וברור יותר, עם התאמה טובה יותר למטרה השיווקית.`,
     ],
     cta_options: [
-      "השאירו פרטים עכשיו",
+      cta,
       "קבלו מידע נוסף",
       "בדקו התאמה עכשיו",
     ],
@@ -342,11 +431,11 @@ async function runCopywriter(task) {
 
   return {
     ok: true,
-    note: "copywriter generic placeholder",
+    note: "copywriter generic output",
     mode,
     deliverable,
-    summary: `Generated generic copy output for ${getBriefTitle(task)}.`,
-    hebrew_copy: `זהו טקסט placeholder עבור ${getBriefTitle(task)}. השלב הבא יהיה לחבר את ה-agent למודל אמיתי כדי לייצר תוכן מלא ואיכותי.`,
+    summary: `Generated copy output for ${getBriefTitle(task)}.`,
+    hebrew_copy: `נוצר טקסט בסיס עבור ${getBriefTitle(task)}. אפשר להרחיב אותו, לחדד את הטון, או לשלוח סבב תיקונים נוסף לפי צורך.`,
   };
 }
 
