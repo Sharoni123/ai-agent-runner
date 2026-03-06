@@ -1,5 +1,6 @@
 import http from "node:http";
 import PocketBase from "pocketbase";
+import OpenAI from "openai";
 
 const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
@@ -14,6 +15,10 @@ if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
 }
 
 const pb = new PocketBase(PB_URL);
+
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 async function auth() {
   await pb.collection("_superusers").authWithPassword(ADMIN_EMAIL, ADMIN_PASS);
@@ -95,7 +100,7 @@ function getCTA(task) {
   return normalizeText(input.cta, "השאירו פרטים לקבלת מידע נוסף והמשך התאמה אישית.");
 }
 
-function getWordCount(task, fallback = 470) {
+function getWordCount(task, fallback = 450) {
   const input = getTaskInput(task);
   const raw = input.word_count ?? input.target_word_count;
   const num = Number(raw);
@@ -134,7 +139,7 @@ function getKeyPoints(task) {
   const raw = input.key_points;
 
   if (Array.isArray(raw)) {
-    return raw.map((v) => normalizeText(v)).filter(Boolean).slice(0, 5);
+    return raw.map((v) => normalizeText(v)).filter(Boolean).slice(0, 6);
   }
 
   if (typeof raw === "string") {
@@ -142,7 +147,7 @@ function getKeyPoints(task) {
       .split("\n")
       .map((v) => v.trim())
       .filter(Boolean)
-      .slice(0, 5);
+      .slice(0, 6);
   }
 
   return [];
@@ -165,7 +170,7 @@ function countWords(text) {
   return String(text).split(/\s+/).filter(Boolean).length;
 }
 
-function clampWordRange(text, minWords = 450, maxWords = 500) {
+function clampWordRange(text, minWords = 430, maxWords = 500) {
   let words = String(text).split(/\s+/).filter(Boolean);
 
   if (words.length > maxWords) {
@@ -175,7 +180,7 @@ function clampWordRange(text, minWords = 450, maxWords = 500) {
 
   if (words.length < minWords) {
     const filler =
-      " בנוסף, כתיבה טובה צריכה לשמור על רצף הגיוני, ניסוח ברור ותחושה אמינה, כדי שהקורא יבין את הערך, ירגיש בטוח במסר, וירצה להמשיך לשלב הבא בתהליך.";
+      " בנוסף, חשוב לשמור על ניסוח בהיר, מהלך רעיוני מסודר ותחושה טבעית, כדי שהתוכן ירגיש מקצועי, אמין ורלוונטי לאורך כל הקריאה.";
     let current = words.join(" ");
     while (countWords(current) < minWords) {
       current += filler;
@@ -244,7 +249,7 @@ function buildArticleCreateOutput(task) {
   const subtitle = buildArticleSubtitle(audience, angle);
 
   const paragraphs = buildArticleParagraphs(task);
-  const articleText = clampWordRange(paragraphs.join("\n\n"), 450, 500);
+  const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
@@ -255,11 +260,11 @@ function buildArticleCreateOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter article create",
+    note: "copywriter article create fallback",
     language,
     mode: "create",
     deliverable: "article",
-    target_word_count: getWordCount(task, 470),
+    target_word_count: getWordCount(task, 450),
     estimated_word_count: countWords(articleText),
     title,
     subtitle,
@@ -306,7 +311,7 @@ function buildArticleRevisionOutput(task) {
     "הטקסט עודכן לפי ההערות, עם חידוד המסר, שיפור הזרימה והבלטת הנקודות החשובות יותר.";
 
   const paragraphs = buildArticleRevisionParagraphs(task, previousOutput, notes);
-  const articleText = clampWordRange(paragraphs.join("\n\n"), 450, 500);
+  const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
@@ -317,11 +322,11 @@ function buildArticleRevisionOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter article revision",
+    note: "copywriter article revision fallback",
     language,
     mode: "revise",
     deliverable: "article",
-    target_word_count: getWordCount(task, 470),
+    target_word_count: getWordCount(task, 450),
     estimated_word_count: countWords(articleText),
     revision_notes_applied: notes,
     title,
@@ -341,7 +346,7 @@ function buildAdsCreateOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter ads create",
+    note: "copywriter ads create fallback",
     language,
     mode: "create",
     deliverable: "ads",
@@ -385,7 +390,7 @@ function buildAdsRevisionOutput(task) {
 
   return {
     ok: true,
-    note: "copywriter ads revision",
+    note: "copywriter ads revision fallback",
     mode: "revise",
     deliverable: "ads",
     revision_notes_applied: notes,
@@ -410,10 +415,282 @@ function buildAdsRevisionOutput(task) {
   };
 }
 
+function parseJsonSafely(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function articleSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: { type: "string" },
+      subtitle: { type: "string" },
+      article_text: { type: "string" },
+      seo_titles: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
+      },
+      cta: { type: "string" },
+    },
+    required: ["title", "subtitle", "article_text", "seo_titles", "cta"],
+  };
+}
+
+function adsSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      headlines: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 5,
+        maxItems: 5,
+      },
+      primary_texts: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
+      },
+      cta_options: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
+      },
+      angles: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
+      },
+    },
+    required: ["headlines", "primary_texts", "cta_options", "angles"],
+  };
+}
+
+async function createStructuredResponse({ model, systemPrompt, userPrompt, schemaName, schema }) {
+  if (!openai) {
+    throw new Error("OPENAI_API_KEY is missing");
+  }
+
+  const response = await openai.responses.create({
+    model,
+    input: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: schemaName,
+        strict: true,
+        schema,
+      },
+    },
+  });
+
+  const parsed = parseJsonSafely(response.output_text);
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("OpenAI returned invalid JSON");
+  }
+
+  return parsed;
+}
+
+async function generateArticleWithAI(task) {
+  const briefTitle = getBriefTitle(task);
+  const tone = getTone(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const cta = getCTA(task);
+  const wordCount = getWordCount(task, 450);
+  const keyPoints = getKeyPoints(task);
+  const notes = getRevisionNotes(task);
+  const previousOutput = getPreviousOutput(task);
+  const mode = getMode(task);
+
+  const keyPointsText =
+    keyPoints.length > 0 ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n") : "אין";
+
+  const previousText = normalizeText(previousOutput.article_text, "");
+  const previousTitle = normalizeText(previousOutput.title, "");
+  const revisionNotesText =
+    notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
+
+  const systemPrompt = [
+    "אתה קופירייטר ועורך תוכן מקצועי שכותב בעברית טבעית, רהוטה ומשכנעת.",
+    "המטרה שלך היא להחזיר JSON בלבד לפי הסכמה שניתנה.",
+    "אין להחזיר markdown, אין להחזיר הסברים, אין קוד בלוקים.",
+    "כתוב בעברית תקינה, זורמת, לא רובוטית, ולא עם חזרות מוגזמות.",
+    "אורך הכתבה צריך להיות בערך 450 מילים.",
+    "הכתבה צריכה להיות שימושית, ברורה, עם פתיחה טובה, גוף טקסט מסודר וסיום טבעי.",
+    "אל תכתוב רשימות בתוך הכתבה עצמה, אלא טקסט רציף בפסקאות.",
+  ].join(" ");
+
+  const userPrompt = [
+    `סוג משימה: ${mode === "revise" ? "עריכת כתבה קיימת" : "יצירת כתבה חדשה"}`,
+    `נושא: ${briefTitle}`,
+    `שפה: עברית`,
+    `טון: ${tone}`,
+    `קהל יעד: ${audience}`,
+    `זווית מרכזית: ${angle}`,
+    `אורך רצוי: ${wordCount} מילים`,
+    `CTA רצוי: ${cta}`,
+    `נקודות מפתח להבלטה:\n${keyPointsText}`,
+    mode === "revise"
+      ? `כותרת קודמת: ${previousTitle || "אין"}`
+      : "",
+    mode === "revise"
+      ? `תוכן קודם:\n${previousText || "אין"}`
+      : "",
+    mode === "revise"
+      ? `הערות תיקון:\n${revisionNotesText}`
+      : "",
+    "החזר JSON בלבד עם השדות: title, subtitle, article_text, seo_titles, cta.",
+    "article_text חייב להיות כתבה מלאה בעברית, בערך 450 מילים.",
+    "seo_titles צריך להכיל בדיוק 3 כותרות SEO קצרות וטובות.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const ai = await createStructuredResponse({
+    model: "gpt-4.1-mini",
+    systemPrompt,
+    userPrompt,
+    schemaName: "copywriter_article",
+    schema: articleSchema(),
+  });
+
+  const articleText = clampWordRange(normalizeText(ai.article_text), 430, 500);
+  const finalTitle = normalizeText(ai.title, buildArticleTitle(briefTitle, angle));
+  const finalSubtitle = normalizeText(
+    ai.subtitle,
+    buildArticleSubtitle(audience, angle)
+  );
+  const finalCta = normalizeText(ai.cta, cta);
+  const finalSeoTitles = Array.isArray(ai.seo_titles) && ai.seo_titles.length === 3
+    ? ai.seo_titles.map((v) => normalizeText(v)).filter(Boolean)
+    : buildSeoTitles(briefTitle);
+
+  const articleHtml = `
+<section dir="rtl" lang="he">
+  <h1>${escapeHtml(finalTitle)}</h1>
+  <h2>${escapeHtml(finalSubtitle)}</h2>
+  ${paragraphsToHtml(articleText.split(/\n\s*\n/).filter(Boolean))}
+</section>
+  `.trim();
+
+  return {
+    ok: true,
+    ai_generated: true,
+    note: mode === "revise" ? "copywriter article revision ai" : "copywriter article create ai",
+    language: "he",
+    mode,
+    deliverable: "article",
+    target_word_count: wordCount,
+    estimated_word_count: countWords(articleText),
+    title: finalTitle,
+    subtitle: finalSubtitle,
+    article_text: articleText,
+    article_html: articleHtml,
+    seo_titles: finalSeoTitles,
+    cta: finalCta,
+  };
+}
+
+async function generateAdsWithAI(task) {
+  const briefTitle = getBriefTitle(task);
+  const tone = getTone(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const cta = getCTA(task);
+  const notes = getRevisionNotes(task);
+  const previousOutput = getPreviousOutput(task);
+  const mode = getMode(task);
+
+  const previousHeadlines = Array.isArray(previousOutput.headlines)
+    ? previousOutput.headlines.join("\n")
+    : "אין";
+  const previousTexts = Array.isArray(previousOutput.primary_texts)
+    ? previousOutput.primary_texts.join("\n\n")
+    : "אין";
+  const revisionNotesText =
+    notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
+
+  const systemPrompt = [
+    "אתה קופירייטר שיווקי מקצועי שכותב בעברית טבעית, ברורה ומשכנעת.",
+    "המטרה שלך היא להחזיר JSON בלבד לפי הסכמה שניתנה.",
+    "אין להחזיר markdown, אין הסברים, אין טקסט מחוץ ל-JSON.",
+    "כתוב ניסוחים קצרים, חדים, רלוונטיים ומותאמים לקהל היעד.",
+  ].join(" ");
+
+  const userPrompt = [
+    `סוג משימה: ${mode === "revise" ? "עריכת מודעות קיימות" : "יצירת מודעות חדשות"}`,
+    `נושא: ${briefTitle}`,
+    `טון: ${tone}`,
+    `קהל יעד: ${audience}`,
+    `זווית מרכזית: ${angle}`,
+    `CTA רצוי: ${cta}`,
+    mode === "revise" ? `כותרות קודמות:\n${previousHeadlines}` : "",
+    mode === "revise" ? `טקסטים קודמים:\n${previousTexts}` : "",
+    mode === "revise" ? `הערות תיקון:\n${revisionNotesText}` : "",
+    "החזר JSON בלבד עם השדות: headlines, primary_texts, cta_options, angles.",
+    "headlines חייב להכיל בדיוק 5 כותרות.",
+    "primary_texts חייב להכיל בדיוק 3 טקסטים.",
+    "cta_options חייב להכיל בדיוק 3 אפשרויות.",
+    "angles חייב להכיל בדיוק 3 זוויות.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const ai = await createStructuredResponse({
+    model: "gpt-4.1-mini",
+    systemPrompt,
+    userPrompt,
+    schemaName: "copywriter_ads",
+    schema: adsSchema(),
+  });
+
+  return {
+    ok: true,
+    ai_generated: true,
+    note: mode === "revise" ? "copywriter ads revision ai" : "copywriter ads create ai",
+    language: "he",
+    mode,
+    deliverable: "ads",
+    headlines: ai.headlines.map((v) => normalizeText(v)).filter(Boolean),
+    primary_texts: ai.primary_texts.map((v) => normalizeText(v)).filter(Boolean),
+    cta_options: ai.cta_options.map((v) => normalizeText(v)).filter(Boolean),
+    angles: ai.angles.map((v) => normalizeText(v)).filter(Boolean),
+  };
+}
+
 async function runCopywriter(task) {
   const deliverable = getDeliverable(task);
   const type = normalizeText(task.type, "").toLowerCase();
   const mode = getMode(task);
+
+  try {
+    if (deliverable === "article" || type === "article") {
+      return await generateArticleWithAI(task);
+    }
+
+    if (deliverable === "ads" || deliverable === "ad_copy" || type === "ad_copy") {
+      return await generateAdsWithAI(task);
+    }
+  } catch (e) {
+    console.error("⚠️ AI copywriter failed, using fallback:", e?.message || e);
+  }
 
   if (deliverable === "article" || type === "article") {
     if (mode === "revise") {
@@ -631,6 +908,7 @@ async function handleRequest(req, res) {
       service: "agent-runner",
       uptime_sec: Math.round(process.uptime()),
       now: new Date().toISOString(),
+      ai_enabled: Boolean(openai),
     });
     return;
   }
@@ -675,6 +953,12 @@ async function handleRequest(req, res) {
 async function main() {
   console.log("🚀 Starting agent runner (manual mode — no auto-processing)...");
   await auth();
+
+  if (openai) {
+    console.log("🤖 OpenAI is enabled for copywriter");
+  } else {
+    console.log("⚠️ OpenAI is not configured. Using fallback copywriter.");
+  }
 
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((e) => {
