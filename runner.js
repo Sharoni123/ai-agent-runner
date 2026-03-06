@@ -203,7 +203,7 @@ function buildSeoTitles(briefTitle) {
   ];
 }
 
-function buildArticleTitle(briefTitle, angle) {
+function buildArticleTitle(briefTitle) {
   return `${briefTitle}: כך מציגים את הערך בצורה ברורה ומשכנעת`;
 }
 
@@ -245,7 +245,7 @@ function buildArticleCreateOutput(task) {
   const angle = getAngle(task);
   const cta = getCTA(task);
 
-  const title = buildArticleTitle(briefTitle, angle);
+  const title = buildArticleTitle(briefTitle);
   const subtitle = buildArticleSubtitle(audience, angle);
 
   const paragraphs = buildArticleParagraphs(task);
@@ -485,8 +485,14 @@ async function createStructuredResponse({ model, systemPrompt, userPrompt, schem
   const response = await openai.responses.create({
     model,
     input: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      {
+        role: "system",
+        content: [{ type: "input_text", text: systemPrompt }],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: userPrompt }],
+      },
     ],
     text: {
       format: {
@@ -528,36 +534,35 @@ async function generateArticleWithAI(task) {
     notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
 
   const systemPrompt = [
-    "אתה קופירייטר ועורך תוכן מקצועי שכותב בעברית טבעית, רהוטה ומשכנעת.",
-    "המטרה שלך היא להחזיר JSON בלבד לפי הסכמה שניתנה.",
+    "אתה קופירייטר ועורך תוכן מקצועי שכותב בעברית טבעית, רהוטה, משכנעת ושיווקית.",
+    "המשימה שלך היא לכתוב כתבה אמיתית על הנושא שניתן לך.",
+    "אסור לך לכתוב על תהליך הכתיבה, אסור להסביר איך כותבים כתבה, ואסור לדבר על הקורא בצורה מטא-טקסטואלית.",
+    "אל תכתוב משפטים כמו: 'כאשר כותבים כתבה', 'הקורא צריך להבין', 'טקסט שיווקי טוב', 'השלב הבא הוא', או ניסוחים דומים.",
+    "כתוב כאילו זו כתבה סופית ומוכנה לפרסום.",
+    "הכתבה חייבת להיות מחולקת לפסקאות טבעיות וברורות.",
+    "כתוב בעברית תקינה, זורמת, לא רובוטית, ולא עם חזרות מיותרות.",
+    "האורך הרצוי הוא בערך 450 מילים.",
+    "החזר JSON בלבד לפי הסכמה שניתנה.",
     "אין להחזיר markdown, אין להחזיר הסברים, אין קוד בלוקים.",
-    "כתוב בעברית תקינה, זורמת, לא רובוטית, ולא עם חזרות מוגזמות.",
-    "אורך הכתבה צריך להיות בערך 450 מילים.",
-    "הכתבה צריכה להיות שימושית, ברורה, עם פתיחה טובה, גוף טקסט מסודר וסיום טבעי.",
-    "אל תכתוב רשימות בתוך הכתבה עצמה, אלא טקסט רציף בפסקאות.",
   ].join(" ");
 
   const userPrompt = [
     `סוג משימה: ${mode === "revise" ? "עריכת כתבה קיימת" : "יצירת כתבה חדשה"}`,
-    `נושא: ${briefTitle}`,
+    `נושא הכתבה: ${briefTitle}`,
     `שפה: עברית`,
     `טון: ${tone}`,
     `קהל יעד: ${audience}`,
-    `זווית מרכזית: ${angle}`,
-    `אורך רצוי: ${wordCount} מילים`,
+    `זווית מרכזית להדגשה: ${angle}`,
+    `אורך רצוי: כ-${wordCount} מילים`,
     `CTA רצוי: ${cta}`,
     `נקודות מפתח להבלטה:\n${keyPointsText}`,
-    mode === "revise"
-      ? `כותרת קודמת: ${previousTitle || "אין"}`
-      : "",
-    mode === "revise"
-      ? `תוכן קודם:\n${previousText || "אין"}`
-      : "",
-    mode === "revise"
-      ? `הערות תיקון:\n${revisionNotesText}`
-      : "",
+    mode === "revise" ? `כותרת קודמת: ${previousTitle || "אין"}` : "",
+    mode === "revise" ? `תוכן קודם:\n${previousText || "אין"}` : "",
+    mode === "revise" ? `הערות תיקון:\n${revisionNotesText}` : "",
+    "כתוב כתבה ממשית על הנושא עצמו.",
+    "הכתבה צריכה לכלול פתיחה חזקה, גוף כתבה ברור, וסיום טבעי עם הנעה לפעולה.",
     "החזר JSON בלבד עם השדות: title, subtitle, article_text, seo_titles, cta.",
-    "article_text חייב להיות כתבה מלאה בעברית, בערך 450 מילים.",
+    "article_text חייב להכיל פסקאות שמופרדות בשורה ריקה בין פסקה לפסקה.",
     "seo_titles צריך להכיל בדיוק 3 כותרות SEO קצרות וטובות.",
   ]
     .filter(Boolean)
@@ -572,21 +577,27 @@ async function generateArticleWithAI(task) {
   });
 
   const articleText = clampWordRange(normalizeText(ai.article_text), 430, 500);
-  const finalTitle = normalizeText(ai.title, buildArticleTitle(briefTitle, angle));
+  const finalTitle = normalizeText(ai.title, buildArticleTitle(briefTitle));
   const finalSubtitle = normalizeText(
     ai.subtitle,
     buildArticleSubtitle(audience, angle)
   );
   const finalCta = normalizeText(ai.cta, cta);
-  const finalSeoTitles = Array.isArray(ai.seo_titles) && ai.seo_titles.length === 3
-    ? ai.seo_titles.map((v) => normalizeText(v)).filter(Boolean)
-    : buildSeoTitles(briefTitle);
+  const finalSeoTitles =
+    Array.isArray(ai.seo_titles) && ai.seo_titles.length === 3
+      ? ai.seo_titles.map((v) => normalizeText(v)).filter(Boolean)
+      : buildSeoTitles(briefTitle);
+
+  const paragraphs = articleText
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
 
   const articleHtml = `
 <section dir="rtl" lang="he">
   <h1>${escapeHtml(finalTitle)}</h1>
   <h2>${escapeHtml(finalSubtitle)}</h2>
-  ${paragraphsToHtml(articleText.split(/\n\s*\n/).filter(Boolean))}
+  ${paragraphsToHtml(paragraphs)}
 </section>
   `.trim();
 
@@ -601,7 +612,7 @@ async function generateArticleWithAI(task) {
     estimated_word_count: countWords(articleText),
     title: finalTitle,
     subtitle: finalSubtitle,
-    article_text: articleText,
+    article_text: paragraphs.join("\n\n"),
     article_html: articleHtml,
     seo_titles: finalSeoTitles,
     cta: finalCta,
