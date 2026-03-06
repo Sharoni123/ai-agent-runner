@@ -4,8 +4,6 @@ const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
 
-const POLL_MS = Number(process.env.POLL_MS || 3000);
-
 if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
   console.error(
     "❌ Missing env vars: POCKETBASE_URL / POCKETBASE_ADMIN_EMAIL / POCKETBASE_ADMIN_PASSWORD"
@@ -18,7 +16,6 @@ const pb = new PocketBase(PB_URL);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function auth() {
-  // PocketBase superuser login (תואם למה שיש אצלך)
   await pb.collection("_superusers").authWithPassword(ADMIN_EMAIL, ADMIN_PASS);
   console.log("✅ Connected to PocketBase as superuser");
 }
@@ -33,50 +30,13 @@ async function logActivity({ event, agent, details = {}, campaign_id = null, tas
       task_id,
     });
   } catch (e) {
-    // לא מפיל ריצה בגלל לוג
     console.error("⚠️ activity_log create failed:", e?.message || e);
-  }
-}
-
-async function fetchNextTask() {
-  // משימות שממתינות = backlog (לפי מה שהגדרת עכשיו)
-  const res = await pb.collection("tasks").getList(1, 50, {
-    filter: `status="backlog"`,
-    sort: "+created", // הכי ישנות קודם
-  });
-
-  if (!res.items.length) return null;
-
-  // priority: urgent > high > normal > low
-  const weight = { urgent: 0, high: 1, normal: 2, low: 3 };
-
-  const sorted = [...res.items].sort((a, b) => {
-    const wa = weight[a.priority] ?? 9;
-    const wb = weight[b.priority] ?? 9;
-    if (wa !== wb) return wa - wb;
-    return new Date(a.created) - new Date(b.created);
-  });
-
-  return sorted[0];
-}
-
-async function claimTask(task) {
-  // “נעילה” פשוטה: משנים סטטוס ל-in_progress.
-  // אם שני runners ינסו לתפוס, אחד עלול “לנצח” — לכן try/catch.
-  try {
-    const updated = await pb.collection("tasks").update(task.id, {
-      status: "in_progress",
-    });
-    return updated;
-  } catch {
-    return null;
   }
 }
 
 /**
  * === Agent handlers ===
- * כרגע: רק שלד שמחזיר output בסיסי כדי שהpipeline יעבוד.
- * (את הנראות/עיצוב של דפי נחיתה וכו' נבנה אחר כך, כמו שביקשת)
+ * אלו רצים רק כשקוראים ל-runTaskById() ידנית.
  */
 const agents = {
   planner: async (task) => {
@@ -104,7 +64,6 @@ const agents = {
   },
 
   landing_page_builder: async (task) => {
-    // LP מינימלי עם טופס (בלי להיכנס עדיין לעיצוב/שונות)
     return {
       ok: true,
       landing_page: {
@@ -133,34 +92,35 @@ const agents = {
   },
 };
 
-async function runTask(task) {
+/**
+ * runTaskById — קריאה ידנית בלבד (מה-frontend דרך כפתור "Run Agent").
+ * מעביר: backlog → in_progress → done
+ * לא נקרא אוטומטית בשום מקום.
+ */
+export async function runTaskById(taskId) {
+  const task = await pb.collection("tasks").getOne(taskId);
+
   const agentName = task.assigned_agent;
   if (!agentName) throw new Error('Task missing "assigned_agent"');
 
   const handler = agents[agentName];
   if (!handler) throw new Error(`No handler for assigned_agent="${agentName}"`);
 
-  return await handler(task);
-}
-
-async function processOnce() {
-  const next = await fetchNextTask();
-  if (!next) return false;
-
-  const task = await claimTask(next);
-  if (!task) return true; // מישהו אחר תפס/שגיאה בעדכון, ממשיכים
+  // backlog → in_progress
+  await pb.collection("tasks").update(task.id, { status: "in_progress" });
 
   await logActivity({
     event: "task_started",
-    agent: task.assigned_agent,
+    agent: agentName,
     campaign_id: task.campaign_id,
     task_id: task.id,
     details: { title: task.title, type: task.type, priority: task.priority },
   });
 
   try {
-    const output = await runTask(task);
+    const output = await handler(task);
 
+    // in_progress → done
     await pb.collection("tasks").update(task.id, {
       status: "done",
       output_data: output,
@@ -168,11 +128,13 @@ async function processOnce() {
 
     await logActivity({
       event: "task_done",
-      agent: task.assigned_agent,
+      agent: agentName,
       campaign_id: task.campaign_id,
       task_id: task.id,
       details: { type: task.type },
     });
+
+    return output;
   } catch (err) {
     await pb.collection("tasks").update(task.id, {
       status: "failed",
@@ -181,21 +143,21 @@ async function processOnce() {
 
     await logActivity({
       event: "task_failed",
-      agent: task.assigned_agent || "planner",
+      agent: agentName,
       campaign_id: task.campaign_id,
       task_id: task.id,
       details: { error: String(err?.message || err), type: task.type },
     });
-  }
 
-  return true;
+    throw err;
+  }
 }
 
 async function main() {
-  console.log("🚀 Starting agent runner...");
+  console.log("🚀 Starting agent runner (manual mode — no auto-processing)...");
   await auth();
 
-  // heartbeat + refresh token
+  // heartbeat בלבד — שומר על החיבור, לא נוגע ב-tasks
   setInterval(async () => {
     try {
       await pb.collection("_superusers").authRefresh();
@@ -211,15 +173,12 @@ async function main() {
     }
   }, 15000);
 
-  while (true) {
-    try {
-      const didWork = await processOnce();
-      if (!didWork) await sleep(POLL_MS);
-    } catch (e) {
-      console.error("Loop error:", e?.message || e);
-      await sleep(2000);
-    }
-  }
+  // ✅ הלולאה האוטומטית הוסרה לחלוטין.
+  // Tasks לא זזים לבד — רק דרך drag & drop או כפתור "Run Agent" ב-frontend.
+  console.log("⏳ Runner is alive. Waiting for manual triggers only.");
+
+  // שומר על הprocess חי
+  await new Promise(() => {});
 }
 
 main().catch((err) => {
