@@ -1,8 +1,10 @@
+import http from "node:http";
 import PocketBase from "pocketbase";
 
 const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
+const PORT = Number(process.env.PORT || 3001);
 
 if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
   console.error(
@@ -348,10 +350,6 @@ async function runCopywriter(task) {
   };
 }
 
-/**
- * === Agent handlers ===
- * אלו רצים רק כשקוראים ל-runTaskById() ידנית.
- */
 const agents = {
   planner: async (task) => {
     return {
@@ -432,11 +430,6 @@ const agents = {
   },
 };
 
-/**
- * runTaskById — קריאה ידנית בלבד (מה-frontend דרך כפתור "Run Agent").
- * מעביר: backlog → in_progress → done
- * לא נקרא אוטומטית בשום מקום.
- */
 export async function runTaskById(taskId) {
   const task = await pb.collection("tasks").getOne(taskId);
 
@@ -503,9 +496,107 @@ export async function runTaskById(taskId) {
   }
 }
 
+function sendJson(res, statusCode, payload) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  });
+  res.end(JSON.stringify(payload));
+}
+
+async function readJsonBody(req) {
+  const chunks = [];
+
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid JSON body");
+  }
+}
+
+async function handleRequest(req, res) {
+  const url = new URL(req.url || "/", `http://${req.headers.host}`);
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    });
+    res.end();
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/health") {
+    sendJson(res, 200, {
+      ok: true,
+      service: "agent-runner",
+      uptime_sec: Math.round(process.uptime()),
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/run-task") {
+    try {
+      const body = await readJsonBody(req);
+      const taskId = normalizeText(body.taskId);
+
+      if (!taskId) {
+        sendJson(res, 400, {
+          ok: false,
+          error: 'Missing "taskId"',
+        });
+        return;
+      }
+
+      const output = await runTaskById(taskId);
+
+      sendJson(res, 200, {
+        ok: true,
+        taskId,
+        output,
+      });
+      return;
+    } catch (e) {
+      console.error("❌ /run-task failed:", e?.message || e);
+      sendJson(res, 500, {
+        ok: false,
+        error: String(e?.message || e),
+      });
+      return;
+    }
+  }
+
+  sendJson(res, 404, {
+    ok: false,
+    error: "Not found",
+  });
+}
+
 async function main() {
   console.log("🚀 Starting agent runner (manual mode — no auto-processing)...");
   await auth();
+
+  const server = http.createServer((req, res) => {
+    handleRequest(req, res).catch((e) => {
+      console.error("❌ Unhandled request error:", e?.message || e);
+      sendJson(res, 500, { ok: false, error: "Internal server error" });
+    });
+  });
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`🌐 HTTP server listening on port ${PORT}`);
+  });
 
   setInterval(async () => {
     try {
@@ -523,8 +614,6 @@ async function main() {
   }, 15000);
 
   console.log("⏳ Runner is alive. Waiting for manual triggers only.");
-
-  await new Promise(() => {});
 }
 
 main().catch((err) => {
