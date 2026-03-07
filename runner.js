@@ -25,7 +25,13 @@ async function auth() {
   console.log("✅ Connected to PocketBase as superuser");
 }
 
-async function logActivity({ event, agent, details = {}, campaign_id = null, task_id = null }) {
+async function logActivity({
+  event,
+  agent,
+  details = {},
+  campaign_id = null,
+  task_id = null,
+}) {
   try {
     await pb.collection("activity_log").create({
       event,
@@ -45,6 +51,21 @@ function normalizeText(value, fallback = "") {
     return trimmed || fallback;
   }
   return fallback;
+}
+
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => normalizeText(v)).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split("\n")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
 function getTaskInput(task) {
@@ -162,6 +183,29 @@ function getAdditionalContext(task) {
     input.additional_context || input.brief_details || input.description,
     ""
   );
+}
+
+function getAssets(task) {
+  const input = getTaskInput(task);
+  const rawAssets =
+    input.assets && typeof input.assets === "object" ? input.assets : {};
+
+  const logos = normalizeStringArray(
+    rawAssets.logos || input.logo_urls || input.logos
+  );
+  const images = normalizeStringArray(
+    rawAssets.images || input.image_urls || input.images
+  );
+  const inspiration = normalizeStringArray(
+    rawAssets.inspiration || input.inspiration_urls || input.inspiration
+  );
+
+  return {
+    logos,
+    images,
+    inspiration,
+    all: [...logos, ...images, ...inspiration],
+  };
 }
 
 function escapeHtml(str) {
@@ -513,7 +557,13 @@ function adsSchema() {
   };
 }
 
-async function createStructuredResponse({ model, systemPrompt, userPrompt, schemaName, schema }) {
+async function createStructuredResponse({
+  model,
+  systemPrompt,
+  userPrompt,
+  schemaName,
+  schema,
+}) {
   if (!openai) {
     throw new Error("OPENAI_API_KEY is missing");
   }
@@ -565,8 +615,8 @@ async function generateArticleWithAI(task) {
     notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
 
   const systemPrompt = [
-    "אתה קופירייטר נדל\"ן מקצועי שכותב בעברית טבעית, שיווקית, זורמת ואמינה.",
-    "אתה כותב כתבה אמיתית שמיועדת לפרסום באתר חדשות/נדל\"ן, בסגנון איכותי של כתבה שיווקית מקצועית.",
+    'אתה קופירייטר נדל"ן מקצועי שכותב בעברית טבעית, שיווקית, זורמת ואמינה.',
+    'אתה כותב כתבה אמיתית שמיועדת לפרסום באתר חדשות/נדל"ן, בסגנון איכותי של כתבה שיווקית מקצועית.',
     "אסור לכתוב מטא-טקסט או הסברים על תהליך הכתיבה.",
     "אסור להשתמש בביטויים כמו: 'כאשר כותבים כתבה', 'חשוב להדגיש', 'כתבה טובה צריכה', 'השלב הבא', 'הקורא צריך להבין', 'טקסט שיווקי טוב', 'כדי שכתבה תעבוד'.",
     "הטקסט חייב לדבר ישירות על הנושא עצמו.",
@@ -593,7 +643,7 @@ async function generateArticleWithAI(task) {
     "החזר JSON בלבד עם השדות: title, subtitle, article_text, seo_titles, cta.",
     "title = כותרת כתבה אמיתית, חדה ומקצועית.",
     "subtitle = תת-כותרת אמיתית, קצרה וטבעית.",
-    "article_text = כתבה מלאה על הנושא עצמו, כאילו עולה עכשיו לאתר נדל\"ן.",
+    'article_text = כתבה מלאה על הנושא עצמו, כאילו עולה עכשיו לאתר נדל"ן.',
     "אסור שהטקסט יסביר איך כותבים כתבה.",
     "seo_titles = בדיוק 3 כותרות SEO.",
   ]
@@ -737,6 +787,255 @@ async function generateAdsWithAI(task) {
   };
 }
 
+function buildNormalizedBrief(task) {
+  const input = getTaskInput(task);
+  const assets = getAssets(task);
+
+  return {
+    title: getBriefTitle(task),
+    context: getAdditionalContext(task),
+    language: getLanguage(task),
+    tone: getTone(task),
+    audience: getAudience(task),
+    angle: getAngle(task),
+    cta: getCTA(task),
+    word_count: getWordCount(task, 450),
+    key_points: getKeyPoints(task),
+    offer: normalizeText(input.offer, ""),
+    location: normalizeText(input.location, ""),
+    campaign_type: normalizeText(input.campaign_type, normalizeText(task.type, "campaign_plan")),
+    assets,
+  };
+}
+
+function getAgentForTaskType(taskType) {
+  switch (taskType) {
+    case "article":
+    case "ad_copy":
+      return "copywriter";
+    case "visual_prompts":
+      return "visual_director";
+    case "background_images":
+      return "image_generator";
+    case "banner_set":
+      return "banner_renderer";
+    case "landing_page":
+      return "landing_page_builder";
+    case "video":
+      return "video_producer";
+    case "qa_review":
+      return "qa";
+    default:
+      return "planner";
+  }
+}
+
+function getDeliverableForTaskType(taskType) {
+  if (taskType === "article") return "article";
+  if (taskType === "ad_copy") return "ads";
+  return taskType;
+}
+
+function buildPlannerChildren(task, normalizedBrief) {
+  const baseTitle = normalizedBrief.title;
+  const baseInput = {
+    source_task_id: task.id,
+    source_type: task.type ?? "campaign_plan",
+    planner_task_id: task.id,
+    brief_title: baseTitle,
+    additional_context: normalizedBrief.context,
+    language: normalizedBrief.language,
+    tone: normalizedBrief.tone,
+    audience: normalizedBrief.audience,
+    angle: normalizedBrief.angle,
+    cta: normalizedBrief.cta,
+    word_count: normalizedBrief.word_count,
+    key_points: normalizedBrief.key_points,
+    planner_brief: normalizedBrief,
+    assets: normalizedBrief.assets,
+  };
+
+  return [
+    {
+      title: `Write ad copy for: ${baseTitle}`,
+      type: "ad_copy",
+      assigned_agent: "copywriter",
+      priority: "high",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "ads",
+      },
+    },
+    {
+      title: `Write article for: ${baseTitle}`,
+      type: "article",
+      assigned_agent: "copywriter",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "article",
+      },
+    },
+    {
+      title: `Create visual prompts for: ${baseTitle}`,
+      type: "visual_prompts",
+      assigned_agent: "visual_director",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "visual_prompts",
+      },
+    },
+    {
+      title: `Generate images for: ${baseTitle}`,
+      type: "background_images",
+      assigned_agent: "image_generator",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "background_images",
+      },
+    },
+    {
+      title: `Prepare banner set for: ${baseTitle}`,
+      type: "banner_set",
+      assigned_agent: "banner_renderer",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "banner_set",
+      },
+    },
+    {
+      title: `Build landing page for: ${baseTitle}`,
+      type: "landing_page",
+      assigned_agent: "landing_page_builder",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "landing_page",
+      },
+    },
+    {
+      title: `Produce video for: ${baseTitle}`,
+      type: "video",
+      assigned_agent: "video_producer",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "video",
+      },
+    },
+    {
+      title: `QA review for: ${baseTitle}`,
+      type: "qa_review",
+      assigned_agent: "qa",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "qa_review",
+      },
+    },
+  ];
+}
+
+async function listExistingChildTasks(sourceTaskId) {
+  const allTasks = await pb.collection("tasks").getFullList({
+    sort: "-created",
+  });
+
+  return allTasks.filter(
+    (item) => item?.input_data?.source_task_id === sourceTaskId
+  );
+}
+
+async function runPlanner(task) {
+  const normalizedBrief = buildNormalizedBrief(task);
+  const plannedChildren = buildPlannerChildren(task, normalizedBrief);
+  const existingChildren = await listExistingChildTasks(task.id);
+
+  const existingTypes = new Set(
+    existingChildren
+      .map((child) => normalizeText(child.type).toLowerCase())
+      .filter(Boolean)
+  );
+
+  const createdChildren = [];
+
+  for (const child of plannedChildren) {
+    const childType = normalizeText(child.type).toLowerCase();
+    if (existingTypes.has(childType)) {
+      continue;
+    }
+
+    const created = await pb.collection("tasks").create(child);
+    createdChildren.push({
+      id: created.id,
+      title: created.title,
+      type: created.type,
+      assigned_agent: created.assigned_agent,
+      status: created.status,
+    });
+
+    await logActivity({
+      event: "planner_child_created",
+      agent: "planner",
+      campaign_id: task.campaign_id,
+      task_id: task.id,
+      details: {
+        child_task_id: created.id,
+        child_type: created.type,
+        child_title: created.title,
+      },
+    });
+  }
+
+  return {
+    ok: true,
+    note: "planner created campaign workflow",
+    deliverable: "campaign_plan",
+    normalized_brief: normalizedBrief,
+    assets_summary: {
+      logos: normalizedBrief.assets.logos.length,
+      images: normalizedBrief.assets.images.length,
+      inspiration: normalizedBrief.assets.inspiration.length,
+      total: normalizedBrief.assets.all.length,
+    },
+    existing_children_count: existingChildren.length,
+    created_children_count: createdChildren.length,
+    created_children: createdChildren,
+    next: plannedChildren.map((child) => ({
+      type: child.type,
+      assigned_agent: child.assigned_agent,
+      title: child.title,
+    })),
+  };
+}
+
 async function runCopywriter(task) {
   const deliverable = getDeliverable(task);
   const type = normalizeText(task.type, "").toLowerCase();
@@ -779,45 +1078,54 @@ async function runCopywriter(task) {
 }
 
 const agents = {
-  planner: async () => {
-    return {
-      ok: true,
-      note: "planner placeholder",
-      next: ["ad_copy", "banner_set", "landing_page", "article", "video", "qa_review"],
-    };
+  planner: async (task) => {
+    return await runPlanner(task);
   },
 
   copywriter: async (task) => {
     return await runCopywriter(task);
   },
 
-  visual_director: async () => {
+  visual_director: async (task) => {
     return {
       ok: true,
       note: "visual_director placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets: getAssets(task),
       prompts: ["prompt 1", "prompt 2"],
     };
   },
 
-  image_generator: async () => {
+  image_generator: async (task) => {
     return {
       ok: true,
       note: "image_generator placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets: getAssets(task),
       images: [],
     };
   },
 
-  banner_renderer: async () => {
+  banner_renderer: async (task) => {
     return {
       ok: true,
       note: "banner_renderer placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets: getAssets(task),
       banners: [],
     };
   },
 
-  landing_page_builder: async () => {
+  landing_page_builder: async (task) => {
     return {
       ok: true,
+      note: "landing_page_builder placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets: getAssets(task),
       landing_page: {
         html: `<!doctype html>
 <html lang="he" dir="rtl">
@@ -840,18 +1148,23 @@ const agents = {
     };
   },
 
-  video_producer: async () => {
+  video_producer: async (task) => {
     return {
       ok: true,
       note: "video_producer placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets: getAssets(task),
       script: "תסריט קצר לדוגמה",
     };
   },
 
-  qa: async () => {
+  qa: async (task) => {
     return {
       ok: true,
       note: "qa placeholder",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
       approved: true,
       notes: [],
     };
