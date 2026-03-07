@@ -1,4 +1,7 @@
 import http from "node:http";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import PocketBase from "pocketbase";
 import OpenAI from "openai";
 
@@ -6,6 +9,19 @@ const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
 const PORT = Number(process.env.PORT || 3001);
+
+const PUBLIC_DIR = process.env.PUBLIC_DIR
+  ? path.resolve(process.env.PUBLIC_DIR)
+  : path.resolve(process.cwd(), "public");
+
+const GENERATED_IMAGES_DIR = path.join(PUBLIC_DIR, "generated-images");
+const BANNERS_DIR = path.join(PUBLIC_DIR, "banners");
+
+const PUBLIC_ASSET_BASE_URL = (
+  process.env.PUBLIC_ASSET_BASE_URL ||
+  process.env.RUNNER_PUBLIC_BASE_URL ||
+  ""
+).trim().replace(/\/+$/, "");
 
 if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
   console.error(
@@ -19,6 +35,25 @@ const pb = new PocketBase(PB_URL);
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
+
+let sharpModulePromise = null;
+
+function getSharp() {
+  if (!sharpModulePromise) {
+    sharpModulePromise = import("sharp")
+      .then((mod) => mod.default || mod)
+      .catch((err) => {
+        throw new Error(
+          `sharp is required for banner_composer. Install it in the runner service. Original error: ${err?.message || err}`
+        );
+      });
+  }
+  return sharpModulePromise;
+}
+
+async function ensureDir(dirPath) {
+  await fs.mkdir(dirPath, { recursive: true });
+}
 
 async function auth() {
   await pb.collection("_superusers").authWithPassword(ADMIN_EMAIL, ADMIN_PASS);
@@ -230,6 +265,15 @@ function escapeHtml(str) {
     .replaceAll("'", "&#39;");
 }
 
+function escapeXml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function paragraphsToHtml(paragraphs) {
   return paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
 }
@@ -342,6 +386,248 @@ function mapBannerSizeToImageSize(size) {
   if (normalized === "1200x628") return "1536x1024";
 
   return "1024x1024";
+}
+
+function parseBannerDimensions(size) {
+  const normalized = normalizeText(size, "1080x1080");
+  const match = normalized.match(/^(\d+)\s*x\s*(\d+)$/i);
+
+  if (!match) {
+    return { width: 1080, height: 1080 };
+  }
+
+  return {
+    width: Number(match[1]) || 1080,
+    height: Number(match[2]) || 1080,
+  };
+}
+
+function slugify(value) {
+  return normalizeText(value, "asset")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "asset";
+}
+
+function relativePathToPublicUrl(relativePath) {
+  const clean = String(relativePath).replaceAll("\\", "/").replace(/^\/+/, "");
+  if (PUBLIC_ASSET_BASE_URL) {
+    return `${PUBLIC_ASSET_BASE_URL}/files/${clean}`;
+  }
+  return `/files/${clean}`;
+}
+
+async function saveBufferToPublic(subdir, filename, buffer) {
+  const dir = path.join(PUBLIC_DIR, subdir);
+  await ensureDir(dir);
+
+  const filePath = path.join(dir, filename);
+  await fs.writeFile(filePath, buffer);
+
+  const relativePath = path.join(subdir, filename).replaceAll("\\", "/");
+
+  return {
+    file_path: filePath,
+    relative_path: relativePath,
+    public_url: relativePathToPublicUrl(relativePath),
+  };
+}
+
+async function saveBase64PngToPublic(subdir, filename, base64) {
+  const buffer = Buffer.from(base64, "base64");
+  return await saveBufferToPublic(subdir, filename, buffer);
+}
+
+async function readLocalFileSafe(filePath) {
+  try {
+    return await fs.readFile(filePath);
+  } catch {
+    return null;
+  }
+}
+
+async function readUrlAsBuffer(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch asset: ${url} (${res.status})`);
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function readAssetBuffer(urlOrPath) {
+  const value = normalizeText(urlOrPath);
+  if (!value) return null;
+
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return await readUrlAsBuffer(value);
+  }
+
+  if (value.startsWith("/files/")) {
+    const relative = value.replace(/^\/files\//, "");
+    return await readLocalFileSafe(path.join(PUBLIC_DIR, relative));
+  }
+
+  if (value.startsWith("/")) {
+    return await readLocalFileSafe(path.join(PUBLIC_DIR, value.replace(/^\/+/, "")));
+  }
+
+  if (path.isAbsolute(value)) {
+    return await readLocalFileSafe(value);
+  }
+
+  return await readLocalFileSafe(path.join(PUBLIC_DIR, value));
+}
+
+function wrapText(text, maxCharsPerLine) {
+  const safe = normalizeText(text);
+  if (!safe) return [];
+
+  const words = safe.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharsPerLine) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines;
+}
+
+function getBannerLayoutMetrics(width, height) {
+  const isVertical = height > width * 1.2;
+  const isLandscape = width > height * 1.2;
+
+  if (isVertical) {
+    return {
+      paddingX: Math.round(width * 0.08),
+      topY: Math.round(height * 0.12),
+      headlineSize: Math.round(width * 0.085),
+      subheadlineSize: Math.round(width * 0.044),
+      ctaSize: Math.round(width * 0.045),
+      disclaimerSize: Math.round(width * 0.025),
+      buttonWidth: Math.round(width * 0.62),
+      buttonHeight: Math.round(height * 0.07),
+      maxHeadlineChars: 18,
+      maxSubChars: 28,
+    };
+  }
+
+  if (isLandscape) {
+    return {
+      paddingX: Math.round(width * 0.06),
+      topY: Math.round(height * 0.18),
+      headlineSize: Math.round(height * 0.12),
+      subheadlineSize: Math.round(height * 0.06),
+      ctaSize: Math.round(height * 0.055),
+      disclaimerSize: Math.round(height * 0.03),
+      buttonWidth: Math.round(width * 0.28),
+      buttonHeight: Math.round(height * 0.14),
+      maxHeadlineChars: 24,
+      maxSubChars: 38,
+    };
+  }
+
+  return {
+    paddingX: Math.round(width * 0.07),
+    topY: Math.round(height * 0.16),
+    headlineSize: Math.round(width * 0.07),
+    subheadlineSize: Math.round(width * 0.038),
+    ctaSize: Math.round(width * 0.04),
+    disclaimerSize: Math.round(width * 0.022),
+    buttonWidth: Math.round(width * 0.46),
+    buttonHeight: Math.round(height * 0.09),
+    maxHeadlineChars: 20,
+    maxSubChars: 34,
+  };
+}
+
+function buildBannerOverlaySvg({
+  width,
+  height,
+  headline,
+  subheadline,
+  cta,
+  disclaimer,
+  logoInsetWidth = 0,
+}) {
+  const m = getBannerLayoutMetrics(width, height);
+  const headlineLines = wrapText(headline, m.maxHeadlineChars).slice(0, 3);
+  const subheadlineLines = wrapText(subheadline, m.maxSubChars).slice(0, 3);
+
+  const overlayX = m.paddingX;
+  const overlayW = width - m.paddingX * 2;
+  const overlayY = Math.round(height * 0.08);
+  const overlayH = Math.round(height * 0.84);
+
+  const headlineStartY = m.topY;
+  const headlineLineGap = Math.round(m.headlineSize * 1.22);
+  const subStartY =
+    headlineStartY + headlineLines.length * headlineLineGap + Math.round(height * 0.03);
+  const subLineGap = Math.round(m.subheadlineSize * 1.5);
+
+  const buttonY = height - Math.round(height * 0.19);
+  const buttonX = overlayX;
+  const disclaimerY = height - Math.round(height * 0.05);
+
+  const headlineText = headlineLines
+    .map((line, index) => {
+      const y = headlineStartY + index * headlineLineGap;
+      return `<text x="${width - overlayX}" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.headlineSize}" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>`;
+    })
+    .join("");
+
+  const subText = subheadlineLines
+    .map((line, index) => {
+      const y = subStartY + index * subLineGap;
+      return `<text x="${width - overlayX}" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.subheadlineSize}" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>`;
+    })
+    .join("");
+
+  const logoRect =
+    logoInsetWidth > 0
+      ? `<rect x="${overlayX}" y="${Math.round(height * 0.045)}" rx="14" ry="14" width="${logoInsetWidth}" height="${Math.round(height * 0.08)}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />`
+      : "";
+
+  return `
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="darkFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.18)"/>
+      <stop offset="40%" stop-color="rgba(0,0,0,0.34)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.64)"/>
+    </linearGradient>
+    <linearGradient id="cardGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(7,31,67,0.30)"/>
+      <stop offset="100%" stop-color="rgba(0,180,216,0.12)"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#darkFade)"/>
+  <rect x="${overlayX}" y="${overlayY}" rx="28" ry="28" width="${overlayW}" height="${overlayH}" fill="url(#cardGlow)" stroke="rgba(255,255,255,0.14)"/>
+  ${logoRect}
+
+  ${headlineText}
+  ${subText}
+
+  <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(m.buttonHeight / 2)}" ry="${Math.round(m.buttonHeight / 2)}" width="${m.buttonWidth}" height="${m.buttonHeight}" fill="#20C997"/>
+  <text x="${buttonX + m.buttonWidth / 2}" y="${buttonY + m.buttonHeight / 2 + m.ctaSize * 0.35}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${m.ctaSize}" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
+
+  <text x="${width - overlayX}" y="${disclaimerY}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.disclaimerSize}" font-weight="400" fill="rgba(255,255,255,0.82)">${escapeXml(disclaimer)}</text>
+</svg>
+  `.trim();
+}
+
+async function buildArticleWithAI(task) {
+  return await generateArticleWithAI(task);
 }
 
 function buildArticleParagraphs(task) {
@@ -1065,6 +1351,8 @@ function buildImageGeneratorFallback(task, related = {}) {
           mime_type: "image/png",
           generation_status: "not_generated",
           has_image_data: false,
+          image_public_url: "",
+          image_file_path: "",
         }))
       : visualPrompts.map((prompt, index) => ({
           banner_name: `visual_${index + 1}`,
@@ -1074,6 +1362,8 @@ function buildImageGeneratorFallback(task, related = {}) {
           mime_type: "image/png",
           generation_status: "not_generated",
           has_image_data: false,
+          image_public_url: "",
+          image_file_path: "",
         }));
 
   return {
@@ -1148,6 +1438,9 @@ async function generateImagesWithAI(task, related = {}) {
       throw new Error(`Image generation failed for ${plan.banner_name}`);
     }
 
+    const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}.png`;
+    const saved = await saveBase64PngToPublic("generated-images", fileBase, b64);
+
     generated_images.push({
       banner_name: plan.banner_name,
       requested_size: plan.requested_size,
@@ -1156,6 +1449,9 @@ async function generateImagesWithAI(task, related = {}) {
       mime_type: "image/png",
       generation_status: "generated",
       has_image_data: true,
+      image_public_url: saved.public_url,
+      image_file_path: saved.file_path,
+      image_relative_path: saved.relative_path,
     });
   }
 
@@ -1489,6 +1785,227 @@ async function runBannerRenderer(task) {
   }
 }
 
+function buildBannerComposerFallback(task, related = {}) {
+  const bannerOutput = related.bannerOutput || {};
+  const finalBanners = Array.isArray(bannerOutput.final_banners)
+    ? bannerOutput.final_banners
+    : [];
+
+  return {
+    ok: true,
+    note: "banner_composer fallback",
+    brief_title: getBriefTitle(task),
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    composed_banners: finalBanners.map((banner) => ({
+      name: normalizeText(banner.name),
+      size: normalizeText(banner.size),
+      headline: normalizeText(banner.headline),
+      subheadline: normalizeText(banner.subheadline),
+      file_name: "",
+      file_path: "",
+      public_url: "",
+      composition_status: "not_composed",
+    })),
+  };
+}
+
+async function composeBannerPng({
+  briefTitle,
+  banner,
+  generatedImages,
+  assets,
+}) {
+  const sharp = await getSharp();
+
+  const { width, height } = parseBannerDimensions(banner.size);
+  const backgroundRef = normalizeText(banner.background_image_ref);
+  const backgroundMeta = Array.isArray(generatedImages)
+    ? generatedImages.find(
+        (img) =>
+          normalizeText(img.banner_name).toLowerCase() ===
+          backgroundRef.toLowerCase()
+      )
+    : null;
+
+  let backgroundBuffer = null;
+
+  if (backgroundMeta?.image_file_path) {
+    backgroundBuffer = await readAssetBuffer(backgroundMeta.image_file_path);
+  }
+
+  if (!backgroundBuffer && backgroundMeta?.image_public_url) {
+    backgroundBuffer = await readAssetBuffer(backgroundMeta.image_public_url);
+  }
+
+  if (!backgroundBuffer) {
+    const fallbackBgSvg = `
+      <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#023E8A"/>
+            <stop offset="50%" stop-color="#0077B6"/>
+            <stop offset="100%" stop-color="#90E0EF"/>
+          </linearGradient>
+        </defs>
+        <rect width="${width}" height="${height}" fill="url(#bg)"/>
+      </svg>
+    `.trim();
+
+    backgroundBuffer = await sharp(Buffer.from(fallbackBgSvg))
+      .png()
+      .toBuffer();
+  }
+
+  const backgroundBase = sharp(backgroundBuffer).resize(width, height, {
+    fit: "cover",
+    position: "centre",
+  });
+
+  const composites = [];
+
+  const overlaySvg = buildBannerOverlaySvg({
+    width,
+    height,
+    headline: banner.headline,
+    subheadline: banner.subheadline,
+    cta: banner.cta,
+    disclaimer: banner.disclaimer,
+    logoInsetWidth: banner.logo_url || assets.logos[0] ? Math.round(width * 0.22) : 0,
+  });
+
+  composites.push({
+    input: Buffer.from(overlaySvg),
+    top: 0,
+    left: 0,
+  });
+
+  const logoCandidate = firstNonEmpty(banner.logo_url, assets.logos[0], "");
+  if (logoCandidate) {
+    try {
+      const logoBuffer = await readAssetBuffer(logoCandidate);
+      if (logoBuffer) {
+        const logoWidth = Math.round(width * 0.18);
+        const logoHeight = Math.round(height * 0.06);
+        const preparedLogo = await sharp(logoBuffer)
+          .resize({
+            width: logoWidth,
+            height: logoHeight,
+            fit: "contain",
+            withoutEnlargement: true,
+          })
+          .png()
+          .toBuffer();
+
+        composites.push({
+          input: preparedLogo,
+          left: Math.round(width * 0.06),
+          top: Math.round(height * 0.055),
+        });
+      }
+    } catch (e) {
+      console.error("⚠️ logo load failed:", e?.message || e);
+    }
+  }
+
+  const outputBuffer = await backgroundBase.composite(composites).png().toBuffer();
+
+  const fileName = `${slugify(briefTitle)}-${slugify(banner.name)}-${randomUUID()}.png`;
+  const saved = await saveBufferToPublic("banners", fileName, outputBuffer);
+
+  return {
+    name: normalizeText(banner.name),
+    size: normalizeText(banner.size),
+    headline: normalizeText(banner.headline),
+    subheadline: normalizeText(banner.subheadline),
+    cta: normalizeText(banner.cta),
+    disclaimer: normalizeText(banner.disclaimer),
+    background_image_ref: normalizeText(banner.background_image_ref),
+    file_name: fileName,
+    file_path: saved.file_path,
+    relative_path: saved.relative_path,
+    public_url: saved.public_url,
+    composition_status: "composed",
+  };
+}
+
+async function runBannerComposer(task) {
+  const input = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+  let siblings = [];
+
+  if (sourceTaskId) {
+    siblings = await listSiblingTasksForSourceTask(sourceTaskId);
+  }
+
+  const bannerTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "banner_set" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const imageTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "background_images" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const related = {
+    bannerTask,
+    imageTask,
+    bannerOutput:
+      bannerTask && bannerTask.output_data && typeof bannerTask.output_data === "object"
+        ? bannerTask.output_data
+        : {},
+    imageOutput:
+      imageTask && imageTask.output_data && typeof imageTask.output_data === "object"
+        ? imageTask.output_data
+        : {},
+  };
+
+  try {
+    const bannerOutput = related.bannerOutput || {};
+    const imageOutput = related.imageOutput || {};
+    const finalBanners = Array.isArray(bannerOutput.final_banners)
+      ? bannerOutput.final_banners
+      : [];
+    const generatedImages = Array.isArray(imageOutput.generated_images)
+      ? imageOutput.generated_images
+      : [];
+    const assets = getAssets(task);
+
+    if (!finalBanners.length) {
+      throw new Error("No final_banners found for banner_composer");
+    }
+
+    const composed_banners = [];
+    for (const banner of finalBanners) {
+      const composed = await composeBannerPng({
+        briefTitle: getBriefTitle(task),
+        banner,
+        generatedImages,
+        assets,
+      });
+      composed_banners.push(composed);
+    }
+
+    return {
+      ok: true,
+      ai_generated: true,
+      note: "banner_composer rendered png banners",
+      brief_title: getBriefTitle(task),
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      related_sources: {
+        banner_task_found: Boolean(related.bannerTask),
+        image_task_found: Boolean(related.imageTask),
+      },
+      composed_banners,
+    };
+  } catch (e) {
+    console.error("⚠️ banner_composer failed, using fallback:", e?.message || e);
+    return buildBannerComposerFallback(task, related);
+  }
+}
+
 function buildNormalizedBrief(task) {
   const input = getTaskInput(task);
   const assets = getAssets(task);
@@ -1525,6 +2042,8 @@ function getAgentForTaskType(taskType) {
       return "image_generator";
     case "banner_set":
       return "banner_renderer";
+    case "banner_compose":
+      return "banner_composer";
     case "landing_page":
       return "landing_page_builder";
     case "video":
@@ -1626,6 +2145,19 @@ function buildPlannerChildren(task, normalizedBrief) {
       input_data: {
         ...baseInput,
         deliverable: "banner_set",
+      },
+    },
+    {
+      title: `Compose final banners for: ${baseTitle}`,
+      type: "banner_compose",
+      assigned_agent: "banner_composer",
+      priority: "normal",
+      goal_id: task.goal_id ?? null,
+      campaign_id: task.campaign_id ?? null,
+      status: "backlog",
+      input_data: {
+        ...baseInput,
+        deliverable: "banner_compose",
       },
     },
     {
@@ -1843,6 +2375,10 @@ const agents = {
     return await runBannerRenderer(task);
   },
 
+  banner_composer: async (task) => {
+    return await runBannerComposer(task);
+  },
+
   landing_page_builder: async (task) => {
     return {
       ok: true,
@@ -1965,10 +2501,19 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS,GET",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   });
   res.end(JSON.stringify(payload));
+}
+
+function sendBuffer(res, statusCode, buffer, contentType = "application/octet-stream") {
+  res.writeHead(statusCode, {
+    "Content-Type": contentType,
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=31536000, immutable",
+  });
+  res.end(buffer);
 }
 
 async function readJsonBody(req) {
@@ -1988,6 +2533,32 @@ async function readJsonBody(req) {
   }
 }
 
+async function handleFileRequest(url, res) {
+  const relativePath = decodeURIComponent(url.pathname.replace(/^\/files\//, ""));
+  const absPath = path.resolve(PUBLIC_DIR, relativePath);
+
+  if (!absPath.startsWith(PUBLIC_DIR)) {
+    sendJson(res, 403, { ok: false, error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const fileBuffer = await fs.readFile(absPath);
+    const ext = path.extname(absPath).toLowerCase();
+
+    let contentType = "application/octet-stream";
+    if (ext === ".png") contentType = "image/png";
+    else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
+    else if (ext === ".webp") contentType = "image/webp";
+    else if (ext === ".svg") contentType = "image/svg+xml";
+    else if (ext === ".json") contentType = "application/json";
+
+    sendBuffer(res, 200, fileBuffer, contentType);
+  } catch {
+    sendJson(res, 404, { ok: false, error: "File not found" });
+  }
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
@@ -2001,6 +2572,11 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname.startsWith("/files/")) {
+    await handleFileRequest(url, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
       ok: true,
@@ -2008,6 +2584,8 @@ async function handleRequest(req, res) {
       uptime_sec: Math.round(process.uptime()),
       now: new Date().toISOString(),
       ai_enabled: Boolean(openai),
+      public_dir: PUBLIC_DIR,
+      public_asset_base_url: PUBLIC_ASSET_BASE_URL || null,
     });
     return;
   }
@@ -2051,6 +2629,8 @@ async function handleRequest(req, res) {
 
 async function main() {
   console.log("🚀 Starting agent runner (manual mode — no auto-processing)...");
+  await ensureDir(GENERATED_IMAGES_DIR);
+  await ensureDir(BANNERS_DIR);
   await auth();
 
   if (openai) {
