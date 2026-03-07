@@ -344,12 +344,6 @@ function mapBannerSizeToImageSize(size) {
   return "1024x1024";
 }
 
-function buildDataUrlFromBase64(base64, mime = "image/png") {
-  const raw = normalizeText(base64);
-  if (!raw) return "";
-  return `data:${mime};base64,${raw}`;
-}
-
 function buildArticleParagraphs(task) {
   const briefTitle = getBriefTitle(task);
   const audience = getAudience(task);
@@ -683,7 +677,7 @@ function bannerRendererSchema() {
             cta: { type: "string" },
             disclaimer: { type: "string" },
             logo_url: { type: "string" },
-            background_image_url: { type: "string" },
+            background_image_ref: { type: "string" },
             layout: { type: "string" },
             visual_focus: { type: "string" },
           },
@@ -695,7 +689,7 @@ function bannerRendererSchema() {
             "cta",
             "disclaimer",
             "logo_url",
-            "background_image_url",
+            "background_image_ref",
             "layout",
             "visual_focus",
           ],
@@ -1068,18 +1062,18 @@ function buildImageGeneratorFallback(task, related = {}) {
             banner.image_prompt,
             `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
           ),
-          image_url: "",
           mime_type: "image/png",
           generation_status: "not_generated",
+          has_image_data: false,
         }))
       : visualPrompts.map((prompt, index) => ({
           banner_name: `visual_${index + 1}`,
           requested_size: "1080x1080",
           image_size: "1024x1024",
           prompt,
-          image_url: "",
           mime_type: "image/png",
           generation_status: "not_generated",
+          has_image_data: false,
         }));
 
   return {
@@ -1160,8 +1154,8 @@ async function generateImagesWithAI(task, related = {}) {
       image_size: plan.image_size,
       prompt: plan.prompt,
       mime_type: "image/png",
-      image_url: buildDataUrlFromBase64(b64, "image/png"),
       generation_status: "generated",
+      has_image_data: true,
     });
   }
 
@@ -1277,12 +1271,13 @@ function buildBannerRendererFallback(task, related = {}) {
     ? pickArray(visual.color_palette)
     : ["#0F172A", "#FFFFFF", "#D4AF37", "#10B981"];
 
-  function findImageByName(name) {
-    return generatedImages.find(
+  function findImageRefByName(name) {
+    const found = generatedImages.find(
       (img) =>
         normalizeText(img.banner_name).toLowerCase() ===
         normalizeText(name).toLowerCase()
     );
+    return found ? normalizeText(found.banner_name) : "";
   }
 
   return {
@@ -1310,7 +1305,7 @@ function buildBannerRendererFallback(task, related = {}) {
         cta,
         disclaimer,
         logo_url: assets.logos[0] || "",
-        background_image_url: findImageByName("square_main")?.image_url || "",
+        background_image_ref: findImageRefByName("square_main"),
         layout:
           "כותרת עליונה גדולה, ויזואל מרכזי, שורת תועלת קצרה, CTA בתחתית, לוגו בפינה ודיסקליימר קטן.",
         visual_focus: "ויזואל מרכזי נקי וחזק עם תחושת פרימיום ונדל״ן איכותי.",
@@ -1323,7 +1318,7 @@ function buildBannerRendererFallback(task, related = {}) {
         cta,
         disclaimer,
         logo_url: assets.logos[0] || "",
-        background_image_url: findImageByName("story_vertical")?.image_url || "",
+        background_image_ref: findImageRefByName("story_vertical"),
         layout:
           "מבנה אנכי: כותרת עליונה, ויזואל גבוה במרכז, CTA באזור תחתון ברור, לוגו למעלה/למטה ודיסקליימר קטן ב-safe area.",
         visual_focus: "תמונה אנכית נקייה עם תחושת גובה, יוקרה ותנועה טבעית לעין.",
@@ -1336,8 +1331,7 @@ function buildBannerRendererFallback(task, related = {}) {
         cta,
         disclaimer,
         logo_url: assets.logos[0] || "",
-        background_image_url:
-          findImageByName("landscape_display")?.image_url || "",
+        background_image_ref: findImageRefByName("landscape_display"),
         layout:
           "כותרת בצד אחד, ויזואל בצד השני, תועלת קצרה מתחת לכותרת, CTA ברור, לוגו ודיסקליימר בתחתית.",
         visual_focus:
@@ -1372,7 +1366,7 @@ async function generateBannerSetWithAI(task, related = {}) {
     'המטרה שלך היא להכין חבילת באנרים סופית ומוכנה ל-render עבור קמפיין נדל"ן.',
     "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
     "אין markdown, אין טקסט מחוץ ל-JSON.",
-    "השתמש בתמונות שכבר נוצרו כ-background_image_url אם סופקו.",
+    "השתמש בתמונות שכבר נוצרו כרפרנסים דרך background_image_ref אם סופקו.",
     "התייחס ל-output של visual_director כבסיס עיצובי מחייב.",
     "אם יש output של מודעות, השתמש בו לחיזוק כותרות ותועלות.",
     "כתוב בעברית ברורה.",
@@ -1395,10 +1389,10 @@ async function generateBannerSetWithAI(task, related = {}) {
     "2. story_vertical בגודל 1080x1920",
     "3. landscape_display בגודל 1200x628",
     "לכל באנר חייבים להיות השדות:",
-    "name, size, headline, subheadline, cta, disclaimer, logo_url, background_image_url, layout, visual_focus",
+    "name, size, headline, subheadline, cta, disclaimer, logo_url, background_image_ref, layout, visual_focus",
     "headline צריך להיות קצר וחזק.",
     "subheadline צריך להיות קצר, מסחרי וברור.",
-    "background_image_url צריך להיות אחד מה-URLs שכבר נוצרו אם קיימים.",
+    "background_image_ref צריך להיות אחד מה-banner_name שכבר נוצרו אם קיימים.",
   ].join("\n\n");
 
   const ai = await createStructuredResponse({
@@ -1434,7 +1428,7 @@ async function generateBannerSetWithAI(task, related = {}) {
           cta: normalizeText(banner.cta, cta),
           disclaimer: normalizeText(banner.disclaimer, disclaimer),
           logo_url: normalizeText(banner.logo_url, assets.logos[0] || ""),
-          background_image_url: normalizeText(banner.background_image_url),
+          background_image_ref: normalizeText(banner.background_image_ref),
           layout: normalizeText(banner.layout),
           visual_focus: normalizeText(banner.visual_focus),
         }))
@@ -1507,6 +1501,7 @@ function buildNormalizedBrief(task) {
     audience: getAudience(task),
     angle: getAngle(task),
     cta: getCTA(task),
+    disclaimer: getDisclaimer(task),
     word_count: getWordCount(task, 450),
     key_points: getKeyPoints(task),
     offer: normalizeText(input.offer, ""),
@@ -1560,6 +1555,7 @@ function buildPlannerChildren(task, normalizedBrief) {
     audience: normalizedBrief.audience,
     angle: normalizedBrief.angle,
     cta: normalizedBrief.cta,
+    disclaimer: normalizedBrief.disclaimer,
     word_count: normalizedBrief.word_count,
     key_points: normalizedBrief.key_points,
     planner_brief: normalizedBrief,
