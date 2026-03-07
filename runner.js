@@ -289,6 +289,24 @@ function buildKeyPointsSentence(keyPoints) {
   return ` בין הנקודות שחשוב לשלב בתמונה הכוללת נמצאות גם ${keyPoints.join(", ")}.`;
 }
 
+function buildAssetsSummaryText(assets) {
+  const parts = [];
+
+  if (assets.logos.length) {
+    parts.push(`לוגואים: ${assets.logos.join(", ")}`);
+  }
+
+  if (assets.images.length) {
+    parts.push(`תמונות שסופקו: ${assets.images.join(", ")}`);
+  }
+
+  if (assets.inspiration.length) {
+    parts.push(`קישורי השראה: ${assets.inspiration.join(", ")}`);
+  }
+
+  return parts.join(" | ");
+}
+
 function buildArticleParagraphs(task) {
   const briefTitle = getBriefTitle(task);
   const audience = getAudience(task);
@@ -557,6 +575,48 @@ function adsSchema() {
   };
 }
 
+function visualDirectorSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      creative_direction: { type: "string" },
+      visual_style: { type: "string" },
+      color_palette: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 6,
+      },
+      banner_brief: { type: "string" },
+      landing_page_brief: { type: "string" },
+      video_brief: { type: "string" },
+      image_prompts: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 2,
+        maxItems: 4,
+      },
+      banner_headlines: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 5,
+      },
+    },
+    required: [
+      "creative_direction",
+      "visual_style",
+      "color_palette",
+      "banner_brief",
+      "landing_page_brief",
+      "video_brief",
+      "image_prompts",
+      "banner_headlines",
+    ],
+  };
+}
+
 async function createStructuredResponse({
   model,
   systemPrompt,
@@ -787,6 +847,83 @@ async function generateAdsWithAI(task) {
   };
 }
 
+async function generateVisualDirectionWithAI(task) {
+  const briefTitle = getBriefTitle(task);
+  const tone = getTone(task);
+  const audience = getAudience(task);
+  const angle = getAngle(task);
+  const cta = getCTA(task);
+  const additionalContext = getAdditionalContext(task);
+  const keyPoints = getKeyPoints(task);
+  const assets = getAssets(task);
+  const plannerBrief = getTaskInput(task).planner_brief ?? null;
+
+  const assetsText = buildAssetsSummaryText(assets) || "לא סופקו נכסים ויזואליים";
+  const plannerBriefText = plannerBrief
+    ? JSON.stringify(plannerBrief, null, 2)
+    : "אין";
+
+  const systemPrompt = [
+    "אתה מנהל קריאייטיב וארט דיירקטור שיווקי בכיר.",
+    "אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין נדל\"ן.",
+    "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
+    "אין markdown, אין הסברים, אין טקסט מחוץ ל-JSON.",
+    "התוצרים צריכים להיות פרקטיים ולהתאים ליצירת באנרים, תמונות, דף נחיתה וסרטון.",
+    "אם סופקו לוגואים, תמונות או לינקי השראה — צריך להתייחס אליהם כאל חומרים מחייבים.",
+    "כתוב בעברית טבעית וברורה.",
+  ].join(" ");
+
+  const userPrompt = [
+    `בנה כיוון קריאייטיב מלא לקמפיין הזה.`,
+    `נושא: ${briefTitle}`,
+    `קהל יעד: ${audience}`,
+    `טון: ${tone}`,
+    `זווית מרכזית: ${angle}`,
+    `CTA: ${cta}`,
+    `מידע נוסף:\n${additionalContext || "אין"}`,
+    `נקודות מפתח:\n${keyPoints.length ? keyPoints.join("\n") : "אין"}`,
+    `Assets שסופקו:\n${assetsText}`,
+    `Planner brief:\n${plannerBriefText}`,
+    "החזר JSON בלבד עם השדות:",
+    "creative_direction, visual_style, color_palette, banner_brief, landing_page_brief, video_brief, image_prompts, banner_headlines",
+    "image_prompts צריכים להיות prompts מוכנים ליצירת תמונות שיווקיות.",
+    "banner_brief צריך להיות תיאור ברור לבאנרים.",
+    "landing_page_brief צריך להסביר איך דף הנחיתה צריך להיראות ולהרגיש.",
+    "video_brief צריך להיות כיוון קצר וברור לסרטון שיווקי.",
+  ].join("\n\n");
+
+  const ai = await createStructuredResponse({
+    model: "gpt-4.1-mini",
+    systemPrompt,
+    userPrompt,
+    schemaName: "visual_director_brief",
+    schema: visualDirectorSchema(),
+  });
+
+  return {
+    ok: true,
+    ai_generated: true,
+    note: "visual_director ai",
+    brief_title: briefTitle,
+    planner_brief: plannerBrief,
+    assets,
+    creative_direction: normalizeText(ai.creative_direction),
+    visual_style: normalizeText(ai.visual_style),
+    color_palette: Array.isArray(ai.color_palette)
+      ? ai.color_palette.map((v) => normalizeText(v)).filter(Boolean)
+      : [],
+    banner_brief: normalizeText(ai.banner_brief),
+    landing_page_brief: normalizeText(ai.landing_page_brief),
+    video_brief: normalizeText(ai.video_brief),
+    image_prompts: Array.isArray(ai.image_prompts)
+      ? ai.image_prompts.map((v) => normalizeText(v)).filter(Boolean)
+      : [],
+    banner_headlines: Array.isArray(ai.banner_headlines)
+      ? ai.banner_headlines.map((v) => normalizeText(v)).filter(Boolean)
+      : [],
+  };
+}
+
 function buildNormalizedBrief(task) {
   const input = getTaskInput(task);
   const assets = getAssets(task);
@@ -803,7 +940,10 @@ function buildNormalizedBrief(task) {
     key_points: getKeyPoints(task),
     offer: normalizeText(input.offer, ""),
     location: normalizeText(input.location, ""),
-    campaign_type: normalizeText(input.campaign_type, normalizeText(task.type, "campaign_plan")),
+    campaign_type: normalizeText(
+      input.campaign_type,
+      normalizeText(task.type, "campaign_plan")
+    ),
     assets,
   };
 }
@@ -964,13 +1104,20 @@ function buildPlannerChildren(task, normalizedBrief) {
 }
 
 async function listExistingChildTasks(sourceTaskId) {
-  const allTasks = await pb.collection("tasks").getFullList({
-    sort: "-created",
-  });
+  try {
+    return await pb.collection("tasks").getFullList({
+      filter: `input_data.source_task_id = "${sourceTaskId}"`,
+      sort: "-created",
+    });
+  } catch {
+    const allTasks = await pb.collection("tasks").getFullList({
+      sort: "-created",
+    });
 
-  return allTasks.filter(
-    (item) => item?.input_data?.source_task_id === sourceTaskId
-  );
+    return allTasks.filter(
+      (item) => item?.input_data?.source_task_id === sourceTaskId
+    );
+  }
 }
 
 async function runPlanner(task) {
@@ -1087,14 +1234,38 @@ const agents = {
   },
 
   visual_director: async (task) => {
-    return {
-      ok: true,
-      note: "visual_director placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      assets: getAssets(task),
-      prompts: ["prompt 1", "prompt 2"],
-    };
+    try {
+      return await generateVisualDirectionWithAI(task);
+    } catch (e) {
+      console.error("⚠️ AI visual_director failed, using fallback:", e?.message || e);
+      return {
+        ok: true,
+        note: "visual_director fallback",
+        brief_title: getBriefTitle(task),
+        planner_brief: getTaskInput(task).planner_brief ?? null,
+        assets: getAssets(task),
+        creative_direction:
+          "קו יוקרתי, נקי ומכירתי שמחבר בין אמינות, הזדמנות, פרימיום ונגישות.",
+        visual_style:
+          "מודרני, אלגנטי, נדל\"ני, עם היררכיה ברורה בין כותרת, מספרים, תמונה וקריאה לפעולה.",
+        color_palette: ["#0F172A", "#FFFFFF", "#D4AF37", "#10B981"],
+        banner_brief:
+          "באנרים צריכים לשלב כותרת חדה, מספר מרכזי בולט, תמונת נדל\"ן חזקה ותחושת פרימיום.",
+        landing_page_brief:
+          "דף נחיתה צריך להיראות יוקרתי, מהיר, ברור, עם אזור Hero חזק, יתרונות, טופס והשימוש בנכסים שסופקו.",
+        video_brief:
+          "סרטון קצר עם פתיחה חזקה, הדגשת מחיר/מיקום/יתרון מרכזי וסיום עם קריאה ברורה לפעולה.",
+        image_prompts: [
+          `צור תמונת נדל"ן שיווקית עבור ${getBriefTitle(task)} בסגנון יוקרתי, מודרני, נקי, עם תאורה טבעית, קומפוזיציה חזקה ואווירת פרימיום`,
+          `צור ויזואל שיווקי עבור ${getBriefTitle(task)} שמתאים לבאנר נדל"ן, עם דגש על יוקרה, אמינות, השקעה חכמה ונראות מסחרית גבוהה`,
+        ],
+        banner_headlines: [
+          `${getBriefTitle(task)}`,
+          "הזדמנות שכדאי להכיר",
+          "זה בדיוק הזמן להיכנס",
+        ],
+      };
+    }
   },
 
   image_generator: async (task) => {
