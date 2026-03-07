@@ -129,6 +129,14 @@ function getCTA(task) {
   );
 }
 
+function getDisclaimer(task) {
+  const input = getTaskInput(task);
+  return normalizeText(
+    input.disclaimer,
+    "המידע אינו מהווה ייעוץ או התחייבות. התמונה להמחשה בלבד."
+  );
+}
+
 function getWordCount(task, fallback = 450) {
   const input = getTaskInput(task);
   const raw = input.word_count ?? input.target_word_count;
@@ -321,7 +329,25 @@ function firstNonEmpty(...values) {
 }
 
 function pickArray(value) {
-  return Array.isArray(value) ? value.map((v) => normalizeText(v)).filter(Boolean) : [];
+  return Array.isArray(value)
+    ? value.map((v) => normalizeText(v)).filter(Boolean)
+    : [];
+}
+
+function mapBannerSizeToImageSize(size) {
+  const normalized = normalizeText(size).toLowerCase();
+
+  if (normalized === "1080x1080") return "1024x1024";
+  if (normalized === "1080x1920") return "1024x1536";
+  if (normalized === "1200x628") return "1536x1024";
+
+  return "1024x1024";
+}
+
+function buildDataUrlFromBase64(base64, mime = "image/png") {
+  const raw = normalizeText(base64);
+  if (!raw) return "";
+  return `data:${mime};base64,${raw}`;
 }
 
 function buildArticleParagraphs(task) {
@@ -400,11 +426,17 @@ function buildArticleRevisionParagraphs(task, previousOutput, notes) {
   return [
     `${briefTitle} מוצג כאן בגרסה מחודשת ומדויקת יותר, לאחר מעבר על ההערות שנמסרו ועל הכיוון שהתוכן צריך להעביר. המטרה בעדכון כזה אינה לשנות סתם מילים, אלא לחזק את מה שחשוב באמת: הכותרת, הזווית, הזרימה והיכולת של הכתבה להציג את ההזדמנות בצורה משכנעת, טבעית וברורה יותר.`,
 
-    `במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק “תוקן”, אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${additionalContext ? `בנוסף, נשמר חיבור ישיר גם למידע המשלים שנמסר: ${additionalContext}.` : ""}`,
+    `במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק “תוקן”, אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${
+      additionalContext
+        ? `בנוסף, נשמר חיבור ישיר גם למידע המשלים שנמסר: ${additionalContext}.`
+        : ""
+    }`,
 
     `כאשר בוחנים כתבה שיווקית טובה, מה שחשוב הוא לא רק אילו נתונים מוצגים, אלא גם איך הם מוגשים. לכן נעשה כאן מאמץ להחליק את המעברים בין הרעיונות, להסיר ניסוחים חלשים או כלליים מדי, ולחדד את המקומות שבהם הכתבה צריכה להרגיש בטוחה יותר, מקצועית יותר ורלוונטית יותר למי שקורא אותה בפועל.`,
 
-    `הגרסה הקודמת כללה בין היתר את הפתיחה הבאה: ${prevText.slice(0, 220)}${prevText.length > 220 ? "..." : ""} מתוך הבסיס הזה בוצע שכתוב שמבקש לשמור על מה שהיה נכון, אבל לשפר את המקומות שהיו זקוקים לדיוק, להעמקה או לנוכחות חזקה יותר של המסר המרכזי.`,
+    `הגרסה הקודמת כללה בין היתר את הפתיחה הבאה: ${prevText.slice(0, 220)}${
+      prevText.length > 220 ? "..." : ""
+    } מתוך הבסיס הזה בוצע שכתוב שמבקש לשמור על מה שהיה נכון, אבל לשפר את המקומות שהיו זקוקים לדיוק, להעמקה או לנוכחות חזקה יותר של המסר המרכזי.`,
 
     `בפועל, כתבה שיווקית חזקה צריכה לגרום לקורא להבין במהירות מה מייחד את ההזדמנות, מה מצדיק את הבדיקה שלה, ואיזה ערך היא עשויה לייצר. זו הסיבה שהנוסח החדש מקפיד יותר על איזון בין תוכן ענייני לבין שפה שיווקית בטוחה, מבלי לגלוש להגזמות או לניסוחים מלאכותיים מדי.`,
 
@@ -477,16 +509,8 @@ function buildAdsCreateOutput(task) {
       `${briefTitle} יכול לקבל נוכחות שיווקית חזקה יותר כאשר מנסחים אותו סביב ${angle}, שומרים על שפה טבעית, ומובילים את הקורא בצורה ישירה לפעולה.`,
       `במקום ניסוח כללי, נכון לבנות סביב ${briefTitle} מסר מדויק, אמין וקל להבנה — כזה שמחזק עניין, בונה ביטחון ומניע לפעולה.`,
     ],
-    angles: [
-      angle,
-      "בהירות ודיוק במסר",
-      "בניית אמון והנעה לפעולה",
-    ],
-    cta_options: [
-      cta,
-      "לקבלת מידע נוסף",
-      "בואו לראות איך זה עובד",
-    ],
+    angles: [angle, "בהירות ודיוק במסר", "בניית אמון והנעה לפעולה"],
+    cta_options: [cta, "לקבלת מידע נוסף", "בואו לראות איך זה עובד"],
   };
 }
 
@@ -522,11 +546,7 @@ function buildAdsRevisionOutput(task) {
       `בוצע חידוד של ההבטחה, שיפור הזרימה והדגשה טובה יותר של התועלת לקורא, כדי להפוך את ${briefTitle} לאפקטיבי יותר ברמת המודעה.`,
       `לאחר סבב התיקונים, המסר סביב ${briefTitle} מרגיש ממוקד, בטוח וברור יותר, עם התאמה טובה יותר למטרה השיווקית.`,
     ],
-    cta_options: [
-      cta,
-      "קבלו מידע נוסף",
-      "בדקו התאמה עכשיו",
-    ],
+    cta_options: [cta, "קבלו מידע נוסף", "בדקו התאמה עכשיו"],
   };
 }
 
@@ -648,7 +668,7 @@ function bannerRendererSchema() {
         maxItems: 6,
       },
       global_design_notes: { type: "string" },
-      banners: {
+      final_banners: {
         type: "array",
         minItems: 3,
         maxItems: 3,
@@ -661,11 +681,11 @@ function bannerRendererSchema() {
             headline: { type: "string" },
             subheadline: { type: "string" },
             cta: { type: "string" },
+            disclaimer: { type: "string" },
+            logo_url: { type: "string" },
+            background_image_url: { type: "string" },
             layout: { type: "string" },
             visual_focus: { type: "string" },
-            asset_usage: { type: "string" },
-            image_prompt: { type: "string" },
-            design_notes: { type: "string" },
           },
           required: [
             "name",
@@ -673,11 +693,11 @@ function bannerRendererSchema() {
             "headline",
             "subheadline",
             "cta",
+            "disclaimer",
+            "logo_url",
+            "background_image_url",
             "layout",
             "visual_focus",
-            "asset_usage",
-            "image_prompt",
-            "design_notes",
           ],
         },
       },
@@ -687,7 +707,7 @@ function bannerRendererSchema() {
       "visual_style",
       "color_palette",
       "global_design_notes",
-      "banners",
+      "final_banners",
     ],
   };
 }
@@ -742,7 +762,9 @@ async function generateArticleWithAI(task) {
   const mode = getMode(task);
 
   const keyPointsText =
-    keyPoints.length > 0 ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n") : "אין";
+    keyPoints.length > 0
+      ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")
+      : "אין";
 
   const previousText = normalizeText(previousOutput.article_text, "");
   const previousTitle = normalizeText(previousOutput.title, "");
@@ -838,7 +860,10 @@ async function generateArticleWithAI(task) {
   return {
     ok: true,
     ai_generated: true,
-    note: mode === "revise" ? "copywriter article revision ai" : "copywriter article create ai",
+    note:
+      mode === "revise"
+        ? "copywriter article revision ai"
+        : "copywriter article create ai",
     language: "he",
     mode,
     deliverable: "article",
@@ -911,7 +936,10 @@ async function generateAdsWithAI(task) {
   return {
     ok: true,
     ai_generated: true,
-    note: mode === "revise" ? "copywriter ads revision ai" : "copywriter ads create ai",
+    note:
+      mode === "revise"
+        ? "copywriter ads revision ai"
+        : "copywriter ads create ai",
     language: "he",
     mode,
     deliverable: "ads",
@@ -940,7 +968,7 @@ async function generateVisualDirectionWithAI(task) {
 
   const systemPrompt = [
     "אתה מנהל קריאייטיב וארט דיירקטור שיווקי בכיר.",
-    "אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין נדל\"ן.",
+    'אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין נדל"ן.',
     "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
     "אין markdown, אין הסברים, אין טקסט מחוץ ל-JSON.",
     "התוצרים צריכים להיות פרקטיים ולהתאים ליצירת באנרים, תמונות, דף נחיתה וסרטון.",
@@ -1016,23 +1044,202 @@ async function listSiblingTasksForSourceTask(sourceTaskId) {
   }
 }
 
+function buildImageGeneratorFallback(task, related = {}) {
+  const briefTitle = getBriefTitle(task);
+  const assets = getAssets(task);
+  const bannerOutput = related.bannerOutput || {};
+  const visualOutput = related.visualOutput || {};
+  const banners = Array.isArray(bannerOutput.banners)
+    ? bannerOutput.banners
+    : Array.isArray(bannerOutput.final_banners)
+    ? bannerOutput.final_banners
+    : [];
+  const visualPrompts = pickArray(visualOutput.image_prompts);
+
+  const derived =
+    banners.length > 0
+      ? banners.map((banner, index) => ({
+          banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+          requested_size: normalizeText(banner.size, "1080x1080"),
+          image_size: mapBannerSizeToImageSize(
+            normalizeText(banner.size, "1080x1080")
+          ),
+          prompt: normalizeText(
+            banner.image_prompt,
+            `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+          ),
+          image_url: "",
+          mime_type: "image/png",
+          generation_status: "not_generated",
+        }))
+      : visualPrompts.map((prompt, index) => ({
+          banner_name: `visual_${index + 1}`,
+          requested_size: "1080x1080",
+          image_size: "1024x1024",
+          prompt,
+          image_url: "",
+          mime_type: "image/png",
+          generation_status: "not_generated",
+        }));
+
+  return {
+    ok: true,
+    note: "image_generator fallback",
+    brief_title: briefTitle,
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    assets,
+    related_sources: {
+      banner_task_found: Boolean(related.bannerTask),
+      visual_task_found: Boolean(related.visualTask),
+    },
+    generated_images: derived,
+  };
+}
+
+async function generateImagesWithAI(task, related = {}) {
+  if (!openai) {
+    throw new Error("OPENAI_API_KEY is missing");
+  }
+
+  const briefTitle = getBriefTitle(task);
+  const assets = getAssets(task);
+  const bannerOutput = related.bannerOutput || {};
+  const visualOutput = related.visualOutput || {};
+  const bannerPlans = Array.isArray(bannerOutput.banners)
+    ? bannerOutput.banners
+    : Array.isArray(bannerOutput.final_banners)
+    ? bannerOutput.final_banners
+    : [];
+  const visualPrompts = pickArray(visualOutput.image_prompts);
+
+  const plans =
+    bannerPlans.length > 0
+      ? bannerPlans.map((banner, index) => ({
+          banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+          requested_size: normalizeText(banner.size, "1080x1080"),
+          image_size: mapBannerSizeToImageSize(
+            normalizeText(banner.size, "1080x1080")
+          ),
+          prompt: normalizeText(
+            banner.image_prompt,
+            `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+          ),
+        }))
+      : visualPrompts.map((prompt, index) => ({
+          banner_name: `visual_${index + 1}`,
+          requested_size: "1080x1080",
+          image_size: "1024x1024",
+          prompt,
+        }));
+
+  if (!plans.length) {
+    throw new Error("No image prompts found for image_generator");
+  }
+
+  const generated_images = [];
+
+  for (const plan of plans) {
+    const result = await openai.images.generate({
+      model: "gpt-image-1",
+      prompt: plan.prompt,
+      size: plan.image_size,
+      quality: "high",
+      output_format: "png",
+    });
+
+    const firstImage = Array.isArray(result?.data) ? result.data[0] : null;
+    const b64 = normalizeText(firstImage?.b64_json, "");
+
+    if (!b64) {
+      throw new Error(`Image generation failed for ${plan.banner_name}`);
+    }
+
+    generated_images.push({
+      banner_name: plan.banner_name,
+      requested_size: plan.requested_size,
+      image_size: plan.image_size,
+      prompt: plan.prompt,
+      mime_type: "image/png",
+      image_url: buildDataUrlFromBase64(b64, "image/png"),
+      generation_status: "generated",
+    });
+  }
+
+  return {
+    ok: true,
+    ai_generated: true,
+    note: "image_generator ai",
+    brief_title: briefTitle,
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    assets,
+    related_sources: {
+      banner_task_found: Boolean(related.bannerTask),
+      visual_task_found: Boolean(related.visualTask),
+    },
+    generated_images,
+  };
+}
+
+async function runImageGenerator(task) {
+  const input = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+  let siblings = [];
+
+  if (sourceTaskId) {
+    siblings = await listSiblingTasksForSourceTask(sourceTaskId);
+  }
+
+  const bannerTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "banner_set" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const visualTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "visual_prompts" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const related = {
+    bannerTask,
+    visualTask,
+    bannerOutput:
+      bannerTask && bannerTask.output_data && typeof bannerTask.output_data === "object"
+        ? bannerTask.output_data
+        : {},
+    visualOutput:
+      visualTask && visualTask.output_data && typeof visualTask.output_data === "object"
+        ? visualTask.output_data
+        : {},
+  };
+
+  try {
+    return await generateImagesWithAI(task, related);
+  } catch (e) {
+    console.error("⚠️ AI image_generator failed, using fallback:", e?.message || e);
+    return buildImageGeneratorFallback(task, related);
+  }
+}
+
 function buildBannerRendererFallback(task, related = {}) {
   const briefTitle = getBriefTitle(task);
   const cta = getCTA(task);
+  const disclaimer = getDisclaimer(task);
   const assets = getAssets(task);
   const visual = related.visualOutput || {};
   const ads = related.adOutput || {};
+  const imageOutput = related.imageOutput || {};
 
   const bannerHeadlines = pickArray(visual.banner_headlines);
   const adHeadlines = pickArray(ads.headlines);
   const primaryTexts = pickArray(ads.primary_texts);
+  const generatedImages = Array.isArray(imageOutput.generated_images)
+    ? imageOutput.generated_images
+    : [];
 
   const baseHeadline =
-    firstNonEmpty(
-      bannerHeadlines[0],
-      adHeadlines[0],
-      briefTitle
-    ) || briefTitle;
+    firstNonEmpty(bannerHeadlines[0], adHeadlines[0], briefTitle) || briefTitle;
 
   const secondHeadline =
     firstNonEmpty(
@@ -1056,10 +1263,6 @@ function buildBannerRendererFallback(task, related = {}) {
       "שילוב של מסר ברור, ויזואל חזק וקריאה ברורה לפעולה."
     );
 
-  const assetUsageText = assets.all.length
-    ? `יש להשתמש בנכסים שסופקו לפי התאמה: ${assets.all.join(", ")}`
-    : "אם אין נכסים מוכנים, יש לעבוד עם ויזואל נדל\"ני יוקרתי, נקי ומכירתי.";
-
   const visualStyle = firstNonEmpty(
     visual.visual_style,
     "מודרני, אלגנטי, יוקרתי, מסחרי ונקי"
@@ -1074,10 +1277,13 @@ function buildBannerRendererFallback(task, related = {}) {
     ? pickArray(visual.color_palette)
     : ["#0F172A", "#FFFFFF", "#D4AF37", "#10B981"];
 
-  const imagePromptBase = firstNonEmpty(
-    pickArray(visual.image_prompts)[0],
-    `צור תמונת נדל"ן שיווקית עבור ${briefTitle} בסגנון פרימיום, מודרני, נקי, עם תאורה טבעית ותחושת יוקרה`
-  );
+  function findImageByName(name) {
+    return generatedImages.find(
+      (img) =>
+        normalizeText(img.banner_name).toLowerCase() ===
+        normalizeText(name).toLowerCase()
+    );
+  }
 
   return {
     ok: true,
@@ -1088,27 +1294,26 @@ function buildBannerRendererFallback(task, related = {}) {
     related_sources: {
       visual_task_found: Boolean(related.visualTask),
       ad_task_found: Boolean(related.adTask),
+      image_task_found: Boolean(related.imageTask),
     },
     master_direction: masterDirection,
     visual_style: visualStyle,
     color_palette: colorPalette,
     global_design_notes:
-      "לשמור על היררכיה ברורה: כותרת ראשית חזקה, אזור ויזואלי נקי, מספר/יתרון מרכזי, וכפתור או CTA ברור. לא להעמיס יותר מדי טקסט.",
-    banners: [
+      "לשמור על היררכיה ברורה: כותרת ראשית חזקה, אזור ויזואלי נקי, מספר/יתרון מרכזי, CTA ברור, לוגו במיקום קבוע ודיסקליימר קטן אך קריא.",
+    final_banners: [
       {
         name: "square_main",
         size: "1080x1080",
         headline: baseHeadline,
         subheadline: sharedSubheadline,
         cta,
+        disclaimer,
+        logo_url: assets.logos[0] || "",
+        background_image_url: findImageByName("square_main")?.image_url || "",
         layout:
-          "כותרת עליונה גדולה, ויזואל מרכזי, שורת תועלת קצרה, CTA בתחתית, מקום ללוגו בפינה.",
-        visual_focus:
-          "ויזואל מרכזי נקי וחזק עם תחושת פרימיום ונדל\"ן איכותי.",
-        asset_usage: assetUsageText,
-        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לבאנר ריבועי 1080x1080 עם אזור נקי לטקסט.`,
-        design_notes:
-          "להבליט את הכותרת, לשמור על ניגודיות גבוהה, ולאפשר קריאות מהירה גם במובייל.",
+          "כותרת עליונה גדולה, ויזואל מרכזי, שורת תועלת קצרה, CTA בתחתית, לוגו בפינה ודיסקליימר קטן.",
+        visual_focus: "ויזואל מרכזי נקי וחזק עם תחושת פרימיום ונדל״ן איכותי.",
       },
       {
         name: "story_vertical",
@@ -1116,14 +1321,12 @@ function buildBannerRendererFallback(task, related = {}) {
         headline: secondHeadline,
         subheadline: sharedSubheadline,
         cta,
+        disclaimer,
+        logo_url: assets.logos[0] || "",
+        background_image_url: findImageByName("story_vertical")?.image_url || "",
         layout:
-          "מבנה אנכי: כותרת עליונה, ויזואל גבוה במרכז, CTA באזור תחתון ברור, עם מקום ללוגו ולדיסקליימר קצר.",
-        visual_focus:
-          "תמונה אנכית, נקייה, עם תחושת גובה, יוקרה ותנועה טבעית לעין.",
-        asset_usage: assetUsageText,
-        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לסטורי אנכי 1080x1920 עם אזור טקסט עליון ותחתון.`,
-        design_notes:
-          "לשמור על safe areas לסטורי, לא להצמיד טקסט לקצוות, ולתת מקום לנשימה.",
+          "מבנה אנכי: כותרת עליונה, ויזואל גבוה במרכז, CTA באזור תחתון ברור, לוגו למעלה/למטה ודיסקליימר קטן ב-safe area.",
+        visual_focus: "תמונה אנכית נקייה עם תחושת גובה, יוקרה ותנועה טבעית לעין.",
       },
       {
         name: "landscape_display",
@@ -1131,14 +1334,14 @@ function buildBannerRendererFallback(task, related = {}) {
         headline: thirdHeadline,
         subheadline: sharedSubheadline,
         cta,
+        disclaimer,
+        logo_url: assets.logos[0] || "",
+        background_image_url:
+          findImageByName("landscape_display")?.image_url || "",
         layout:
-          "כותרת בצד אחד, ויזואל בצד השני, תועלת קצרה מתחת לכותרת, וכפתור בולט או אזור CTA.",
+          "כותרת בצד אחד, ויזואל בצד השני, תועלת קצרה מתחת לכותרת, CTA ברור, לוגו ודיסקליימר בתחתית.",
         visual_focus:
           "קומפוזיציה רחבה, נקייה ומסחרית שמתאימה למדיה חברתית ולדיספליי.",
-        asset_usage: assetUsageText,
-        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לבאנר רוחבי 1200x628 עם שטח נקי לטקסט.`,
-        design_notes:
-          "להשתמש בהיררכיה חדה, מעט טקסט, ותמונה שנותנת מיד תחושת השקעה/פרימיום.",
       },
     ],
   };
@@ -1149,51 +1352,60 @@ async function generateBannerSetWithAI(task, related = {}) {
   const assets = getAssets(task);
   const visual = related.visualOutput || {};
   const ads = related.adOutput || {};
+  const imageOutput = related.imageOutput || {};
   const additionalContext = getAdditionalContext(task);
   const cta = getCTA(task);
+  const disclaimer = getDisclaimer(task);
 
   const visualPayload = JSON.stringify(visual || {}, null, 2);
   const adsPayload = JSON.stringify(ads || {}, null, 2);
+  const imagePayload = JSON.stringify(imageOutput || {}, null, 2);
   const assetsText = buildAssetsSummaryText(assets) || "לא סופקו נכסים";
-  const plannerBriefText = JSON.stringify(getTaskInput(task).planner_brief ?? {}, null, 2);
+  const plannerBriefText = JSON.stringify(
+    getTaskInput(task).planner_brief ?? {},
+    null,
+    2
+  );
 
   const systemPrompt = [
     "אתה Senior Banner Designer + Creative Strategist.",
-    "המטרה שלך היא להכין חבילת באנרים פרקטית ומוכנה לביצוע עבור קמפיין נדל\"ן.",
+    'המטרה שלך היא להכין חבילת באנרים סופית ומוכנה ל-render עבור קמפיין נדל"ן.',
     "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
     "אין markdown, אין טקסט מחוץ ל-JSON.",
-    "הבאנרים חייבים להיות ישימים בפועל, קצרים, חדים, מסחריים ומסודרים.",
-    "התייחס ל-output של visual_director כבסיס מחייב לעיצוב.",
-    "אם יש output של מודעות, השתמש בו כדי לחזק כותרות ותועלות.",
+    "השתמש בתמונות שכבר נוצרו כ-background_image_url אם סופקו.",
+    "התייחס ל-output של visual_director כבסיס עיצובי מחייב.",
+    "אם יש output של מודעות, השתמש בו לחיזוק כותרות ותועלות.",
     "כתוב בעברית ברורה.",
   ].join(" ");
 
   const userPrompt = [
-    `צור חבילת באנרים מלאה עבור הקמפיין: ${briefTitle}`,
+    `צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle}`,
     `CTA: ${cta}`,
+    `Disclaimer: ${disclaimer}`,
     `מידע נוסף:\n${additionalContext || "אין"}`,
     `Assets:\n${assetsText}`,
     `Planner brief:\n${plannerBriefText}`,
     `Visual director output:\n${visualPayload}`,
     `Ad copy output:\n${adsPayload}`,
+    `Image generator output:\n${imagePayload}`,
     "החזר JSON בלבד עם השדות:",
-    "master_direction, visual_style, color_palette, global_design_notes, banners",
-    "banners חייב להכיל בדיוק 3 באנרים:",
+    "master_direction, visual_style, color_palette, global_design_notes, final_banners",
+    "final_banners חייב להכיל בדיוק 3 באנרים:",
     "1. square_main בגודל 1080x1080",
     "2. story_vertical בגודל 1080x1920",
     "3. landscape_display בגודל 1200x628",
     "לכל באנר חייבים להיות השדות:",
-    "name, size, headline, subheadline, cta, layout, visual_focus, asset_usage, image_prompt, design_notes",
+    "name, size, headline, subheadline, cta, disclaimer, logo_url, background_image_url, layout, visual_focus",
     "headline צריך להיות קצר וחזק.",
     "subheadline צריך להיות קצר, מסחרי וברור.",
-    "image_prompt צריך להיות מוכן ליצירת ויזואל תואם.",
+    "background_image_url צריך להיות אחד מה-URLs שכבר נוצרו אם קיימים.",
   ].join("\n\n");
 
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
     userPrompt,
-    schemaName: "banner_renderer_package",
+    schemaName: "banner_renderer_package_final",
     schema: bannerRendererSchema(),
   });
 
@@ -1207,23 +1419,24 @@ async function generateBannerSetWithAI(task, related = {}) {
     related_sources: {
       visual_task_found: Boolean(related.visualTask),
       ad_task_found: Boolean(related.adTask),
+      image_task_found: Boolean(related.imageTask),
     },
     master_direction: normalizeText(ai.master_direction),
     visual_style: normalizeText(ai.visual_style),
     color_palette: pickArray(ai.color_palette),
     global_design_notes: normalizeText(ai.global_design_notes),
-    banners: Array.isArray(ai.banners)
-      ? ai.banners.map((banner) => ({
+    final_banners: Array.isArray(ai.final_banners)
+      ? ai.final_banners.map((banner) => ({
           name: normalizeText(banner.name),
           size: normalizeText(banner.size),
           headline: normalizeText(banner.headline),
           subheadline: normalizeText(banner.subheadline),
           cta: normalizeText(banner.cta, cta),
+          disclaimer: normalizeText(banner.disclaimer, disclaimer),
+          logo_url: normalizeText(banner.logo_url, assets.logos[0] || ""),
+          background_image_url: normalizeText(banner.background_image_url),
           layout: normalizeText(banner.layout),
           visual_focus: normalizeText(banner.visual_focus),
-          asset_usage: normalizeText(banner.asset_usage),
-          image_prompt: normalizeText(banner.image_prompt),
-          design_notes: normalizeText(banner.design_notes),
         }))
       : [],
   };
@@ -1250,9 +1463,16 @@ async function runBannerRenderer(task) {
       normalizeText(item.status).toLowerCase() === "done"
   );
 
+  const imageTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "background_images" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
   const related = {
     visualTask,
     adTask,
+    imageTask,
     visualOutput:
       visualTask && visualTask.output_data && typeof visualTask.output_data === "object"
         ? visualTask.output_data
@@ -1260,6 +1480,10 @@ async function runBannerRenderer(task) {
     adOutput:
       adTask && adTask.output_data && typeof adTask.output_data === "object"
         ? adTask.output_data
+        : {},
+    imageOutput:
+      imageTask && imageTask.output_data && typeof imageTask.output_data === "object"
+        ? imageTask.output_data
         : {},
   };
 
@@ -1616,14 +1840,7 @@ const agents = {
   },
 
   image_generator: async (task) => {
-    return {
-      ok: true,
-      note: "image_generator placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      assets: getAssets(task),
-      images: [],
-    };
+    return await runImageGenerator(task);
   },
 
   banner_renderer: async (task) => {
@@ -1841,9 +2058,9 @@ async function main() {
   await auth();
 
   if (openai) {
-    console.log("🤖 OpenAI is enabled for copywriter");
+    console.log("🤖 OpenAI is enabled for copywriter + image_generator");
   } else {
-    console.log("⚠️ OpenAI is not configured. Using fallback copywriter.");
+    console.log("⚠️ OpenAI is not configured. Using fallback outputs.");
   }
 
   const server = http.createServer((req, res) => {
