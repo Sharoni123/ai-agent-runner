@@ -50,6 +50,11 @@ function normalizeText(value, fallback = "") {
     const trimmed = value.trim();
     return trimmed || fallback;
   }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
   return fallback;
 }
 
@@ -305,6 +310,18 @@ function buildAssetsSummaryText(assets) {
   }
 
   return parts.join(" | ");
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function pickArray(value) {
+  return Array.isArray(value) ? value.map((v) => normalizeText(v)).filter(Boolean) : [];
 }
 
 function buildArticleParagraphs(task) {
@@ -617,6 +634,64 @@ function visualDirectorSchema() {
   };
 }
 
+function bannerRendererSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      master_direction: { type: "string" },
+      visual_style: { type: "string" },
+      color_palette: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 6,
+      },
+      global_design_notes: { type: "string" },
+      banners: {
+        type: "array",
+        minItems: 3,
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            name: { type: "string" },
+            size: { type: "string" },
+            headline: { type: "string" },
+            subheadline: { type: "string" },
+            cta: { type: "string" },
+            layout: { type: "string" },
+            visual_focus: { type: "string" },
+            asset_usage: { type: "string" },
+            image_prompt: { type: "string" },
+            design_notes: { type: "string" },
+          },
+          required: [
+            "name",
+            "size",
+            "headline",
+            "subheadline",
+            "cta",
+            "layout",
+            "visual_focus",
+            "asset_usage",
+            "image_prompt",
+            "design_notes",
+          ],
+        },
+      },
+    },
+    required: [
+      "master_direction",
+      "visual_style",
+      "color_palette",
+      "global_design_notes",
+      "banners",
+    ],
+  };
+}
+
 async function createStructuredResponse({
   model,
   systemPrompt,
@@ -922,6 +997,278 @@ async function generateVisualDirectionWithAI(task) {
       ? ai.banner_headlines.map((v) => normalizeText(v)).filter(Boolean)
       : [],
   };
+}
+
+async function listSiblingTasksForSourceTask(sourceTaskId) {
+  try {
+    return await pb.collection("tasks").getFullList({
+      filter: `input_data.source_task_id = "${sourceTaskId}"`,
+      sort: "-created",
+    });
+  } catch {
+    const allTasks = await pb.collection("tasks").getFullList({
+      sort: "-created",
+    });
+
+    return allTasks.filter(
+      (item) => item?.input_data?.source_task_id === sourceTaskId
+    );
+  }
+}
+
+function buildBannerRendererFallback(task, related = {}) {
+  const briefTitle = getBriefTitle(task);
+  const cta = getCTA(task);
+  const assets = getAssets(task);
+  const visual = related.visualOutput || {};
+  const ads = related.adOutput || {};
+
+  const bannerHeadlines = pickArray(visual.banner_headlines);
+  const adHeadlines = pickArray(ads.headlines);
+  const primaryTexts = pickArray(ads.primary_texts);
+
+  const baseHeadline =
+    firstNonEmpty(
+      bannerHeadlines[0],
+      adHeadlines[0],
+      briefTitle
+    ) || briefTitle;
+
+  const secondHeadline =
+    firstNonEmpty(
+      bannerHeadlines[1],
+      adHeadlines[1],
+      "הזדמנות שכדאי להכיר"
+    ) || "הזדמנות שכדאי להכיר";
+
+  const thirdHeadline =
+    firstNonEmpty(
+      bannerHeadlines[2],
+      adHeadlines[2],
+      "זה בדיוק הזמן להיכנס"
+    ) || "זה בדיוק הזמן להיכנס";
+
+  const sharedSubheadline =
+    firstNonEmpty(
+      primaryTexts[0],
+      visual.banner_brief,
+      getAdditionalContext(task),
+      "שילוב של מסר ברור, ויזואל חזק וקריאה ברורה לפעולה."
+    );
+
+  const assetUsageText = assets.all.length
+    ? `יש להשתמש בנכסים שסופקו לפי התאמה: ${assets.all.join(", ")}`
+    : "אם אין נכסים מוכנים, יש לעבוד עם ויזואל נדל\"ני יוקרתי, נקי ומכירתי.";
+
+  const visualStyle = firstNonEmpty(
+    visual.visual_style,
+    "מודרני, אלגנטי, יוקרתי, מסחרי ונקי"
+  );
+
+  const masterDirection = firstNonEmpty(
+    visual.creative_direction,
+    "באנרים שיווקיים חזקים עם היררכיה ברורה, כותרת בולטת, תמונה חזקה וקריאה לפעולה."
+  );
+
+  const colorPalette = pickArray(visual.color_palette).length
+    ? pickArray(visual.color_palette)
+    : ["#0F172A", "#FFFFFF", "#D4AF37", "#10B981"];
+
+  const imagePromptBase = firstNonEmpty(
+    pickArray(visual.image_prompts)[0],
+    `צור תמונת נדל"ן שיווקית עבור ${briefTitle} בסגנון פרימיום, מודרני, נקי, עם תאורה טבעית ותחושת יוקרה`
+  );
+
+  return {
+    ok: true,
+    note: "banner_renderer fallback",
+    brief_title: briefTitle,
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    assets,
+    related_sources: {
+      visual_task_found: Boolean(related.visualTask),
+      ad_task_found: Boolean(related.adTask),
+    },
+    master_direction: masterDirection,
+    visual_style: visualStyle,
+    color_palette: colorPalette,
+    global_design_notes:
+      "לשמור על היררכיה ברורה: כותרת ראשית חזקה, אזור ויזואלי נקי, מספר/יתרון מרכזי, וכפתור או CTA ברור. לא להעמיס יותר מדי טקסט.",
+    banners: [
+      {
+        name: "square_main",
+        size: "1080x1080",
+        headline: baseHeadline,
+        subheadline: sharedSubheadline,
+        cta,
+        layout:
+          "כותרת עליונה גדולה, ויזואל מרכזי, שורת תועלת קצרה, CTA בתחתית, מקום ללוגו בפינה.",
+        visual_focus:
+          "ויזואל מרכזי נקי וחזק עם תחושת פרימיום ונדל\"ן איכותי.",
+        asset_usage: assetUsageText,
+        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לבאנר ריבועי 1080x1080 עם אזור נקי לטקסט.`,
+        design_notes:
+          "להבליט את הכותרת, לשמור על ניגודיות גבוהה, ולאפשר קריאות מהירה גם במובייל.",
+      },
+      {
+        name: "story_vertical",
+        size: "1080x1920",
+        headline: secondHeadline,
+        subheadline: sharedSubheadline,
+        cta,
+        layout:
+          "מבנה אנכי: כותרת עליונה, ויזואל גבוה במרכז, CTA באזור תחתון ברור, עם מקום ללוגו ולדיסקליימר קצר.",
+        visual_focus:
+          "תמונה אנכית, נקייה, עם תחושת גובה, יוקרה ותנועה טבעית לעין.",
+        asset_usage: assetUsageText,
+        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לסטורי אנכי 1080x1920 עם אזור טקסט עליון ותחתון.`,
+        design_notes:
+          "לשמור על safe areas לסטורי, לא להצמיד טקסט לקצוות, ולתת מקום לנשימה.",
+      },
+      {
+        name: "landscape_display",
+        size: "1200x628",
+        headline: thirdHeadline,
+        subheadline: sharedSubheadline,
+        cta,
+        layout:
+          "כותרת בצד אחד, ויזואל בצד השני, תועלת קצרה מתחת לכותרת, וכפתור בולט או אזור CTA.",
+        visual_focus:
+          "קומפוזיציה רחבה, נקייה ומסחרית שמתאימה למדיה חברתית ולדיספליי.",
+        asset_usage: assetUsageText,
+        image_prompt: `${imagePromptBase}. הפורמט צריך להתאים לבאנר רוחבי 1200x628 עם שטח נקי לטקסט.`,
+        design_notes:
+          "להשתמש בהיררכיה חדה, מעט טקסט, ותמונה שנותנת מיד תחושת השקעה/פרימיום.",
+      },
+    ],
+  };
+}
+
+async function generateBannerSetWithAI(task, related = {}) {
+  const briefTitle = getBriefTitle(task);
+  const assets = getAssets(task);
+  const visual = related.visualOutput || {};
+  const ads = related.adOutput || {};
+  const additionalContext = getAdditionalContext(task);
+  const cta = getCTA(task);
+
+  const visualPayload = JSON.stringify(visual || {}, null, 2);
+  const adsPayload = JSON.stringify(ads || {}, null, 2);
+  const assetsText = buildAssetsSummaryText(assets) || "לא סופקו נכסים";
+  const plannerBriefText = JSON.stringify(getTaskInput(task).planner_brief ?? {}, null, 2);
+
+  const systemPrompt = [
+    "אתה Senior Banner Designer + Creative Strategist.",
+    "המטרה שלך היא להכין חבילת באנרים פרקטית ומוכנה לביצוע עבור קמפיין נדל\"ן.",
+    "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
+    "אין markdown, אין טקסט מחוץ ל-JSON.",
+    "הבאנרים חייבים להיות ישימים בפועל, קצרים, חדים, מסחריים ומסודרים.",
+    "התייחס ל-output של visual_director כבסיס מחייב לעיצוב.",
+    "אם יש output של מודעות, השתמש בו כדי לחזק כותרות ותועלות.",
+    "כתוב בעברית ברורה.",
+  ].join(" ");
+
+  const userPrompt = [
+    `צור חבילת באנרים מלאה עבור הקמפיין: ${briefTitle}`,
+    `CTA: ${cta}`,
+    `מידע נוסף:\n${additionalContext || "אין"}`,
+    `Assets:\n${assetsText}`,
+    `Planner brief:\n${plannerBriefText}`,
+    `Visual director output:\n${visualPayload}`,
+    `Ad copy output:\n${adsPayload}`,
+    "החזר JSON בלבד עם השדות:",
+    "master_direction, visual_style, color_palette, global_design_notes, banners",
+    "banners חייב להכיל בדיוק 3 באנרים:",
+    "1. square_main בגודל 1080x1080",
+    "2. story_vertical בגודל 1080x1920",
+    "3. landscape_display בגודל 1200x628",
+    "לכל באנר חייבים להיות השדות:",
+    "name, size, headline, subheadline, cta, layout, visual_focus, asset_usage, image_prompt, design_notes",
+    "headline צריך להיות קצר וחזק.",
+    "subheadline צריך להיות קצר, מסחרי וברור.",
+    "image_prompt צריך להיות מוכן ליצירת ויזואל תואם.",
+  ].join("\n\n");
+
+  const ai = await createStructuredResponse({
+    model: "gpt-4.1-mini",
+    systemPrompt,
+    userPrompt,
+    schemaName: "banner_renderer_package",
+    schema: bannerRendererSchema(),
+  });
+
+  return {
+    ok: true,
+    ai_generated: true,
+    note: "banner_renderer ai",
+    brief_title: briefTitle,
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    assets,
+    related_sources: {
+      visual_task_found: Boolean(related.visualTask),
+      ad_task_found: Boolean(related.adTask),
+    },
+    master_direction: normalizeText(ai.master_direction),
+    visual_style: normalizeText(ai.visual_style),
+    color_palette: pickArray(ai.color_palette),
+    global_design_notes: normalizeText(ai.global_design_notes),
+    banners: Array.isArray(ai.banners)
+      ? ai.banners.map((banner) => ({
+          name: normalizeText(banner.name),
+          size: normalizeText(banner.size),
+          headline: normalizeText(banner.headline),
+          subheadline: normalizeText(banner.subheadline),
+          cta: normalizeText(banner.cta, cta),
+          layout: normalizeText(banner.layout),
+          visual_focus: normalizeText(banner.visual_focus),
+          asset_usage: normalizeText(banner.asset_usage),
+          image_prompt: normalizeText(banner.image_prompt),
+          design_notes: normalizeText(banner.design_notes),
+        }))
+      : [],
+  };
+}
+
+async function runBannerRenderer(task) {
+  const input = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+  let siblings = [];
+
+  if (sourceTaskId) {
+    siblings = await listSiblingTasksForSourceTask(sourceTaskId);
+  }
+
+  const visualTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "visual_prompts" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const adTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "ad_copy" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const related = {
+    visualTask,
+    adTask,
+    visualOutput:
+      visualTask && visualTask.output_data && typeof visualTask.output_data === "object"
+        ? visualTask.output_data
+        : {},
+    adOutput:
+      adTask && adTask.output_data && typeof adTask.output_data === "object"
+        ? adTask.output_data
+        : {},
+  };
+
+  try {
+    return await generateBannerSetWithAI(task, related);
+  } catch (e) {
+    console.error("⚠️ AI banner_renderer failed, using fallback:", e?.message || e);
+    return buildBannerRendererFallback(task, related);
+  }
 }
 
 function buildNormalizedBrief(task) {
@@ -1280,14 +1627,7 @@ const agents = {
   },
 
   banner_renderer: async (task) => {
-    return {
-      ok: true,
-      note: "banner_renderer placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      assets: getAssets(task),
-      banners: [],
-    };
+    return await runBannerRenderer(task);
   },
 
   landing_page_builder: async (task) => {
