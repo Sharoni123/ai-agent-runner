@@ -406,7 +406,7 @@ function mapBannerSizeToGeminiImageConfig(size) {
   if (normalized === "1080x1080" || normalized === "1000x1000") {
     return {
       aspect_ratio: "1:1",
-      image_size: "2k",
+      image_size: "1k",
       output_width: 1080,
       output_height: 1080,
     };
@@ -415,7 +415,7 @@ function mapBannerSizeToGeminiImageConfig(size) {
   if (normalized === "1080x1920") {
     return {
       aspect_ratio: "9:16",
-      image_size: "2k",
+      image_size: "1k",
       output_width: 1080,
       output_height: 1920,
     };
@@ -428,7 +428,7 @@ function mapBannerSizeToGeminiImageConfig(size) {
   ) {
     return {
       aspect_ratio: "16:9",
-      image_size: "2k",
+      image_size: "1k",
       output_width: 1200,
       output_height: 628,
     };
@@ -436,7 +436,7 @@ function mapBannerSizeToGeminiImageConfig(size) {
 
   return {
     aspect_ratio: "1:1",
-    image_size: "2k",
+    image_size: "1k",
     output_width: 1080,
     output_height: 1080,
   };
@@ -1601,7 +1601,7 @@ function buildImageGeneratorFallback(task, related = {}) {
 }
 
 async function generateImagesWithAI(task, related = {}) {
-  if (!gemini && !process.env.GEMINI_API_KEY) {
+  if (!gemini) {
     throw new Error("GEMINI_API_KEY is missing");
   }
 
@@ -1671,48 +1671,106 @@ async function generateImagesWithAI(task, related = {}) {
   }
 
   const generated_images = [];
+  let successCount = 0;
 
   for (const plan of plans) {
-    console.log(`🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`);
+    try {
+      console.log(
+        `🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`
+      );
 
-    const firstImage = await generateGeminiImage(plan);
+      const response = await gemini.models.generateContent({
+        model: GEMINI_IMAGE_MODEL,
+        contents: plan.prompt,
+        config: {
+          responseModalities: ["IMAGE"],
+          imageConfig: {
+            aspectRatio: plan.aspect_ratio,
+            imageSize: plan.image_size,
+          },
+        },
+      });
 
-    const fileBase = `${slugify(briefTitle)}-${slugify(
-      plan.banner_name
-    )}-${randomUUID()}`;
+      const images = extractGeminiInlineImages(response);
+      const firstImage = images[0];
 
-    const saved = await saveGeneratedImageToPublic({
-      subdir: "generated-images",
-      filenameBase: fileBase,
-      base64: firstImage.data,
-      mimeType: firstImage.mime_type,
-      targetWidth: plan.output_width,
-      targetHeight: plan.output_height,
-    });
+      if (!firstImage?.data) {
+        throw new Error(
+          `Gemini returned no inline image for ${plan.banner_name}`
+        );
+      }
 
-    generated_images.push({
-      banner_name: plan.banner_name,
-      requested_size: plan.requested_size,
-      image_size: plan.image_size,
-      aspect_ratio: plan.aspect_ratio,
-      output_width: plan.output_width,
-      output_height: plan.output_height,
-      prompt: plan.prompt,
-      mime_type: firstImage.mime_type,
-      generation_status: "generated",
-      has_image_data: true,
-      image_public_url: saved.public_url,
-      image_file_path: saved.file_path,
-      image_relative_path: saved.relative_path,
-      generator: "gemini",
-      generator_model: GEMINI_IMAGE_MODEL,
-    });
+      const fileBase = `${slugify(briefTitle)}-${slugify(
+        plan.banner_name
+      )}-${randomUUID()}`;
+
+      const saved = await saveGeneratedImageToPublic({
+        subdir: "generated-images",
+        filenameBase: fileBase,
+        base64: firstImage.data,
+        mimeType: firstImage.mime_type,
+        targetWidth: plan.output_width,
+        targetHeight: plan.output_height,
+      });
+
+      generated_images.push({
+        banner_name: plan.banner_name,
+        requested_size: plan.requested_size,
+        image_size: plan.image_size,
+        aspect_ratio: plan.aspect_ratio,
+        output_width: plan.output_width,
+        output_height: plan.output_height,
+        prompt: plan.prompt,
+        mime_type: firstImage.mime_type,
+        generation_status: "generated",
+        has_image_data: true,
+        image_public_url: saved.public_url,
+        image_file_path: saved.file_path,
+        image_relative_path: saved.relative_path,
+        generator: "gemini",
+        generator_model: GEMINI_IMAGE_MODEL,
+      });
+
+      successCount += 1;
+      console.log(`✅ Generated image for ${plan.banner_name}`);
+    } catch (err) {
+      console.error(
+        `⚠️ Failed generating ${plan.banner_name}:`,
+        err?.message || err
+      );
+
+      generated_images.push({
+        banner_name: plan.banner_name,
+        requested_size: plan.requested_size,
+        image_size: plan.image_size,
+        aspect_ratio: plan.aspect_ratio,
+        output_width: plan.output_width,
+        output_height: plan.output_height,
+        prompt: plan.prompt,
+        mime_type: "image/png",
+        generation_status: "failed",
+        has_image_data: false,
+        image_public_url: "",
+        image_file_path: "",
+        image_relative_path: "",
+        generator: "gemini",
+        generator_model: GEMINI_IMAGE_MODEL,
+        error: String(err?.message || err),
+      });
+    }
+  }
+
+  if (successCount === 0) {
+    throw new Error("All Gemini image generations failed");
   }
 
   return {
     ok: true,
     ai_generated: true,
-    note: "image_generator ai via gemini",
+    note:
+      successCount === plans.length
+        ? "image_generator ai via gemini"
+        : "image_generator ai via gemini (partial success)",
     brief_title: briefTitle,
     planner_brief: getTaskInput(task).planner_brief ?? null,
     assets,
