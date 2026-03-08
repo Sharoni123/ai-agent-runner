@@ -756,90 +756,330 @@ function buildBannerOverlaySvg({
   logoInsetWidth = 0,
 }) {
   const m = getBannerLayoutMetrics(width, height);
+
+  const isVertical = height > width * 1.2;
+  const isLandscape = width > height * 1.2;
+
   const headlineLines = wrapText(headline, m.maxHeadlineChars).slice(0, 3);
   const subheadlineLines = wrapText(subheadline, m.maxSubChars).slice(0, 3);
 
-  const overlayX = m.paddingX;
-  const overlayW = width - m.paddingX * 2;
-  const overlayY = Math.round(height * 0.08);
-  const overlayH = Math.round(height * 0.84);
+  const overlayX = Math.round(width * 0.05);
+  const overlayY = Math.round(height * 0.06);
+  const overlayW = Math.round(width * 0.9);
+  const overlayH = Math.round(height * 0.88);
 
-  const headlineStartY = m.topY;
-  const headlineLineGap = Math.round(m.headlineSize * 1.22);
+  const cardW = isLandscape
+    ? Math.round(width * 0.42)
+    : isVertical
+    ? Math.round(width * 0.84)
+    : Math.round(width * 0.82);
+
+  const cardH = isLandscape
+    ? Math.round(height * 0.74)
+    : isVertical
+    ? Math.round(height * 0.5)
+    : Math.round(height * 0.52);
+
+  const cardX = isLandscape
+    ? Math.round(width * 0.06)
+    : Math.round(width * 0.08);
+
+  const cardY = isLandscape
+    ? Math.round(height * 0.13)
+    : isVertical
+    ? Math.round(height * 0.1)
+    : Math.round(height * 0.12);
+
+  const accentBarW = Math.round(cardW * 0.035);
+  const accentBarH = Math.round(cardH * 0.78);
+
+  const badgeW = isVertical
+    ? Math.round(cardW * 0.62)
+    : Math.round(cardW * 0.5);
+
+  const badgeH = Math.round(cardH * 0.12);
+
+  const badgeX = cardX + Math.round(cardW * 0.08);
+  const badgeY = cardY + Math.round(cardH * 0.08);
+
+  const headlineSize = isVertical
+    ? Math.round(width * 0.085)
+    : isLandscape
+    ? Math.round(height * 0.11)
+    : Math.round(width * 0.07);
+
+  const headlineLineGap = Math.round(headlineSize * 1.06);
+
+  const subheadlineSize = isVertical
+    ? Math.round(width * 0.042)
+    : isLandscape
+    ? Math.round(height * 0.052)
+    : Math.round(width * 0.034);
+
+  const subLineGap = Math.round(subheadlineSize * 1.45);
+
+  const headlineX = cardX + Math.round(cardW * 0.9);
+  const headlineStartY = badgeY + badgeH + Math.round(cardH * 0.15);
+
   const subStartY =
     headlineStartY +
     headlineLines.length * headlineLineGap +
-    Math.round(height * 0.03);
-  const subLineGap = Math.round(m.subheadlineSize * 1.5);
+    Math.round(cardH * 0.07);
 
-  const buttonY = height - Math.round(height * 0.19);
-  const buttonX = overlayX;
-  const disclaimerY = height - Math.round(height * 0.05);
+  const ctaW = isVertical
+    ? Math.round(cardW * 0.72)
+    : Math.round(cardW * 0.58);
+
+  const ctaH = Math.round(cardH * 0.12);
+  const ctaX = cardX + Math.round(cardW * 0.08);
+  const ctaY = cardY + cardH - ctaH - Math.round(cardH * 0.08);
+
+  const ctaFontSize = isVertical
+    ? Math.round(width * 0.04)
+    : isLandscape
+    ? Math.round(height * 0.045)
+    : Math.round(width * 0.033);
+
+  const disclaimerSize = isVertical
+    ? Math.round(width * 0.023)
+    : isLandscape
+    ? Math.round(height * 0.026)
+    : Math.round(width * 0.02);
+
+  const disclaimerX = width - Math.round(width * 0.05);
+  const disclaimerY = height - Math.round(height * 0.04);
+
+  const logoBoxW =
+    logoInsetWidth > 0
+      ? Math.max(logoInsetWidth, Math.round(cardW * 0.34))
+      : Math.round(cardW * 0.34);
+
+  const logoBoxH = Math.round(cardH * 0.12);
+  const logoBoxX = cardX + Math.round(cardW * 0.08);
+  const logoBoxY = cardY + cardH - ctaH - logoBoxH - Math.round(cardH * 0.13);
 
   const headlineText = headlineLines
     .map((line, index) => {
       const y = headlineStartY + index * headlineLineGap;
-      return `<text x="${
-        width - overlayX
-      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
-        m.headlineSize
-      }" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>`;
+      return `
+      <text
+        x="${headlineX}"
+        y="${y}"
+        text-anchor="end"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="${headlineSize}"
+        font-weight="800"
+        fill="url(#goldText)"
+        filter="url(#headlineGlow)"
+        letter-spacing="0.2"
+      >${escapeXml(line)}</text>`;
     })
     .join("");
 
   const subText = subheadlineLines
     .map((line, index) => {
       const y = subStartY + index * subLineGap;
-      return `<text x="${
-        width - overlayX
-      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
-        m.subheadlineSize
-      }" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>`;
+      return `
+      <text
+        x="${headlineX}"
+        y="${y}"
+        text-anchor="end"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="${subheadlineSize}"
+        font-weight="500"
+        fill="#F8FAFC"
+        opacity="0.95"
+      >${escapeXml(line)}</text>`;
     })
     .join("");
 
   const logoRect =
     logoInsetWidth > 0
-      ? `<rect x="${overlayX}" y="${Math.round(
-          height * 0.045
-        )}" rx="14" ry="14" width="${logoInsetWidth}" height="${Math.round(
-          height * 0.08
-        )}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />`
+      ? `
+      <rect
+        x="${logoBoxX}"
+        y="${logoBoxY}"
+        rx="18"
+        ry="18"
+        width="${logoBoxW}"
+        height="${logoBoxH}"
+        fill="rgba(255,255,255,0.12)"
+        stroke="rgba(255,255,255,0.18)"
+        stroke-width="1.2"
+      />`
       : "";
+
+  const badgeText =
+    headline.includes("₪") || headline.includes("ש״ח") || headline.includes("ש\"ח")
+      ? headline
+      : "הזדמנות השקעה ייחודית";
+
+  const safeBadgeText =
+    badgeText.length > 26 ? badgeText.slice(0, 26).trim() + "…" : badgeText;
 
   return `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="darkFade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(0,0,0,0.18)"/>
-      <stop offset="40%" stop-color="rgba(0,0,0,0.34)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0.64)"/>
+      <stop offset="0%" stop-color="rgba(0,0,0,0.10)"/>
+      <stop offset="38%" stop-color="rgba(0,0,0,0.28)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.68)"/>
     </linearGradient>
-    <linearGradient id="cardGlow" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="rgba(7,31,67,0.30)"/>
-      <stop offset="100%" stop-color="rgba(0,180,216,0.12)"/>
+
+    <linearGradient id="sideFade" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.05)"/>
+      <stop offset="45%" stop-color="rgba(0,0,0,0.10)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.55)"/>
     </linearGradient>
+
+    <linearGradient id="glassCard" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(15,23,42,0.72)"/>
+      <stop offset="55%" stop-color="rgba(15,23,42,0.56)"/>
+      <stop offset="100%" stop-color="rgba(30,41,59,0.42)"/>
+    </linearGradient>
+
+    <linearGradient id="goldText" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF7CC"/>
+      <stop offset="18%" stop-color="#FCE38A"/>
+      <stop offset="45%" stop-color="#D4AF37"/>
+      <stop offset="70%" stop-color="#FFF0B3"/>
+      <stop offset="100%" stop-color="#B8891D"/>
+    </linearGradient>
+
+    <linearGradient id="goldBadge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFF5C2"/>
+      <stop offset="35%" stop-color="#E4C35A"/>
+      <stop offset="70%" stop-color="#C5962B"/>
+      <stop offset="100%" stop-color="#8C6417"/>
+    </linearGradient>
+
+    <linearGradient id="ctaGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+
+    <filter id="headlineGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feColorMatrix
+        in="blur"
+        type="matrix"
+        values="1 0 0 0 0.85
+                0 1 0 0 0.72
+                0 0 1 0 0.25
+                0 0 0 0.9 0"
+        result="goldGlow"
+      />
+      <feMerge>
+        <feMergeNode in="goldGlow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="rgba(0,0,0,0.35)"/>
+    </filter>
+
+    <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="rgba(16,185,129,0.35)"/>
+    </filter>
   </defs>
 
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#darkFade)"/>
-  <rect x="${overlayX}" y="${overlayY}" rx="28" ry="28" width="${overlayW}" height="${overlayH}" fill="url(#cardGlow)" stroke="rgba(255,255,255,0.14)"/>
-  ${logoRect}
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#sideFade)"/>
+
+  <rect
+    x="${overlayX}"
+    y="${overlayY}"
+    rx="34"
+    ry="34"
+    width="${overlayW}"
+    height="${overlayH}"
+    fill="rgba(255,255,255,0.04)"
+    opacity="0.55"
+  />
+
+  <rect
+    x="${cardX}"
+    y="${cardY}"
+    rx="34"
+    ry="34"
+    width="${cardW}"
+    height="${cardH}"
+    fill="url(#glassCard)"
+    stroke="rgba(255,255,255,0.15)"
+    stroke-width="1.4"
+    filter="url(#softShadow)"
+  />
+
+  <rect
+    x="${cardX + Math.round(cardW * 0.04)}"
+    y="${cardY + Math.round(cardH * 0.08)}"
+    rx="${Math.round(accentBarW / 2)}"
+    ry="${Math.round(accentBarW / 2)}"
+    width="${accentBarW}"
+    height="${accentBarH}"
+    fill="url(#goldBadge)"
+    opacity="0.95"
+  />
+
+  <rect
+    x="${badgeX}"
+    y="${badgeY}"
+    rx="${Math.round(badgeH / 2)}"
+    ry="${Math.round(badgeH / 2)}"
+    width="${badgeW}"
+    height="${badgeH}"
+    fill="url(#goldBadge)"
+    opacity="0.98"
+  />
+
+  <text
+    x="${badgeX + badgeW / 2}"
+    y="${badgeY + badgeH / 2 + Math.round(badgeH * 0.16)}"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="${Math.round(badgeH * 0.36)}"
+    font-weight="800"
+    fill="#2B1E08"
+    letter-spacing="0.3"
+  >${escapeXml(safeBadgeText)}</text>
 
   ${headlineText}
   ${subText}
 
-  <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(
-    m.buttonHeight / 2
-  )}" ry="${Math.round(m.buttonHeight / 2)}" width="${
-    m.buttonWidth
-  }" height="${m.buttonHeight}" fill="#20C997"/>
-  <text x="${buttonX + m.buttonWidth / 2}" y="${
-    buttonY + m.buttonHeight / 2 + m.ctaSize * 0.35
-  }" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${
-    m.ctaSize
-  }" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
+  ${logoRect}
 
-  <text x="${width - overlayX}" y="${disclaimerY}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.disclaimerSize}" font-weight="400" fill="rgba(255,255,255,0.82)">${escapeXml(disclaimer)}</text>
+  <rect
+    x="${ctaX}"
+    y="${ctaY}"
+    rx="${Math.round(ctaH / 2)}"
+    ry="${Math.round(ctaH / 2)}"
+    width="${ctaW}"
+    height="${ctaH}"
+    fill="url(#ctaGradient)"
+    filter="url(#buttonShadow)"
+  />
+
+  <text
+    x="${ctaX + ctaW / 2}"
+    y="${ctaY + ctaH / 2 + Math.round(ctaFontSize * 0.34)}"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="${ctaFontSize}"
+    font-weight="800"
+    fill="#06281F"
+    letter-spacing="0.2"
+  >${escapeXml(cta)}</text>
+
+  <text
+    x="${disclaimerX}"
+    y="${disclaimerY}"
+    text-anchor="end"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="${disclaimerSize}"
+    font-weight="500"
+    fill="rgba(255,255,255,0.88)"
+  >${escapeXml(disclaimer)}</text>
 </svg>
   `.trim();
 }
