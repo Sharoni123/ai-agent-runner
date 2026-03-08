@@ -675,7 +675,6 @@ async function readAssetBuffer(urlOrPath) {
 
   return await readLocalFileSafe(path.join(PUBLIC_DIR, value));
 }
-
 function wrapText(text, maxCharsPerLine) {
   const safe = normalizeText(text);
   if (!safe) return [];
