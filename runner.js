@@ -2295,48 +2295,78 @@ async function runBannerComposer(task) {
         : {},
   };
 
-  try {
-    const bannerOutput = related.bannerOutput || {};
-    const imageOutput = related.imageOutput || {};
-    const finalBanners = Array.isArray(bannerOutput.final_banners)
-      ? bannerOutput.final_banners
-      : [];
-    const generatedImages = Array.isArray(imageOutput.generated_images)
-      ? imageOutput.generated_images
-      : [];
-    const assets = getAssets(task);
+  const bannerOutput = related.bannerOutput || {};
+  const imageOutput = related.imageOutput || {};
+  const finalBanners = Array.isArray(bannerOutput.final_banners)
+    ? bannerOutput.final_banners
+    : [];
+  const generatedImages = Array.isArray(imageOutput.generated_images)
+    ? imageOutput.generated_images
+    : [];
+  const assets = getAssets(task);
 
-    if (!finalBanners.length) {
-      throw new Error("No final_banners found for banner_composer");
-    }
+  if (!finalBanners.length) {
+    console.error("⚠️ banner_composer: No final_banners found");
+    return buildBannerComposerFallback(task, related);
+  }
 
-    const composed_banners = [];
-    for (const banner of finalBanners) {
+  const composed_banners = [];
+
+  for (const banner of finalBanners) {
+    try {
       const composed = await composeBannerPng({
         briefTitle: getBriefTitle(task),
         banner,
         generatedImages,
         assets,
       });
-      composed_banners.push(composed);
-    }
 
-    return {
-      ok: true,
-      ai_generated: true,
-      note: "banner_composer rendered png banners",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      related_sources: {
-        banner_task_found: Boolean(related.bannerTask),
-        image_task_found: Boolean(related.imageTask),
-      },
-      composed_banners,
-    };
-  } catch (e) {
-    console.error("⚠️ banner_composer failed, using fallback:", e?.message || e);
-    return buildBannerComposerFallback(task, related);
+      composed_banners.push(composed);
+    } catch (e) {
+      console.error(
+        `⚠️ banner_composer failed for ${normalizeText(banner.name)}:`,
+        e?.message || e
+      );
+
+      composed_banners.push({
+        name: normalizeText(banner.name),
+        size: normalizeText(banner.size),
+        headline: normalizeText(banner.headline),
+        subheadline: normalizeText(banner.subheadline),
+        cta: normalizeText(banner.cta),
+        disclaimer: normalizeText(banner.disclaimer),
+        background_image_ref: normalizeText(banner.background_image_ref),
+        file_name: "",
+        file_path: "",
+        relative_path: "",
+        public_url: "",
+        composition_status: "failed",
+        error: String(e?.message || e),
+      });
+    }
   }
+
+  const composedCount = composed_banners.filter(
+    (b) => b.composition_status === "composed"
+  ).length;
+
+  return {
+    ok: true,
+    ai_generated: composedCount > 0,
+    note:
+      composedCount === composed_banners.length
+        ? "banner_composer rendered png banners"
+        : composedCount > 0
+        ? "banner_composer partial success"
+        : "banner_composer no banners composed",
+    brief_title: getBriefTitle(task),
+    planner_brief: getTaskInput(task).planner_brief ?? null,
+    related_sources: {
+      banner_task_found: Boolean(related.bannerTask),
+      image_task_found: Boolean(related.imageTask),
+    },
+    composed_banners,
+  };
 }
 
 function buildNormalizedBrief(task) {
