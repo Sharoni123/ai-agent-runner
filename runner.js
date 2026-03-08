@@ -41,6 +41,9 @@ const gemini = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
+const GEMINI_IMAGE_MODEL =
+  process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
+
 let sharpModulePromise = null;
 
 function getSharp() {
@@ -391,6 +394,50 @@ function mapBannerSizeToImageSize(size) {
   if (normalized === "1200x628") return "1536x1024";
 
   return "1024x1024";
+}
+
+function mapBannerSizeToGeminiImageConfig(size) {
+  const normalized = normalizeText(size).toLowerCase().replace(/\s+/g, "");
+
+  if (normalized === "1080x1080" || normalized === "1000x1000") {
+    return {
+      aspect_ratio: "1:1",
+      image_size: "2k",
+    };
+  }
+
+  if (normalized === "1080x1920") {
+    return {
+      aspect_ratio: "9:16",
+      image_size: "2k",
+    };
+  }
+
+  if (normalized === "1980x1020" || normalized === "1200x628") {
+    return {
+      aspect_ratio: "16:9",
+      image_size: "2k",
+    };
+  }
+
+  return {
+    aspect_ratio: "1:1",
+    image_size: "2k",
+  };
+}
+
+function extractGeminiImagesFromInteraction(interaction) {
+  if (!interaction || !Array.isArray(interaction.outputs)) {
+    return [];
+  }
+
+  return interaction.outputs
+    .filter((output) => output?.type === "image" && output?.data)
+    .map((output) => ({
+      mime_type: normalizeText(output.mime_type, "image/png"),
+      data: normalizeText(output.data),
+    }))
+    .filter((item) => item.data);
 }
 
 function parseBannerDimensions(size) {
@@ -1386,8 +1433,8 @@ function buildImageGeneratorFallback(task, related = {}) {
 }
 
 async function generateImagesWithAI(task, related = {}) {
-  if (!openai) {
-    throw new Error("OPENAI_API_KEY is missing");
+  if (!gemini) {
+    throw new Error("GEMINI_API_KEY is missing");
   }
 
   const briefTitle = getBriefTitle(task);
@@ -1403,23 +1450,44 @@ async function generateImagesWithAI(task, related = {}) {
 
   const plans =
     bannerPlans.length > 0
-      ? banners.map((banner, index) => ({
-          banner_name: normalizeText(banner.name, `banner_${index + 1}`),
-          requested_size: normalizeText(banner.size, "1080x1080"),
-          image_size: mapBannerSizeToImageSize(
-            normalizeText(banner.size, "1080x1080")
-          ),
-          prompt: normalizeText(
-            banner.image_prompt,
-            `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
-          ),
-        }))
-      : visualPrompts.map((prompt, index) => ({
-          banner_name: `visual_${index + 1}`,
-          requested_size: "1080x1080",
-          image_size: "1024x1024",
-          prompt,
-        }));
+      ? bannerPlans.map((banner, index) => {
+          const requestedSize = normalizeText(banner.size, "1080x1080");
+          const imageConfig = mapBannerSizeToGeminiImageConfig(requestedSize);
+
+          return {
+            banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+            requested_size: requestedSize,
+            image_size: imageConfig.image_size,
+            aspect_ratio: imageConfig.aspect_ratio,
+            prompt: [
+              normalizeText(
+                banner.image_prompt,
+                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+              ),
+              "Create a premium commercial real-estate background visual.",
+              "No text, no letters, no numbers, no Hebrew, no English, no signage, no watermark, no logo in the image.",
+              "The image must be clean and suitable as a background for a Hebrew marketing banner.",
+              "High-end composition, realistic lighting, professional advertising style.",
+            ].join(" "),
+          };
+        })
+      : visualPrompts.map((prompt, index) => {
+          const imageConfig = mapBannerSizeToGeminiImageConfig("1080x1080");
+
+          return {
+            banner_name: `visual_${index + 1}`,
+            requested_size: "1080x1080",
+            image_size: imageConfig.image_size,
+            aspect_ratio: imageConfig.aspect_ratio,
+            prompt: [
+              normalizeText(prompt),
+              "Create a premium commercial real-estate background visual.",
+              "No text, no letters, no numbers, no Hebrew, no English, no signage, no watermark, no logo in the image.",
+              "The image must be clean and suitable as a background for a Hebrew marketing banner.",
+              "High-end composition, realistic lighting, professional advertising style.",
+            ].join(" "),
+          };
+        });
 
   if (!plans.length) {
     throw new Error("No image prompts found for image_generator");
@@ -1428,42 +1496,60 @@ async function generateImagesWithAI(task, related = {}) {
   const generated_images = [];
 
   for (const plan of plans) {
-    const result = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: plan.prompt,
-      size: plan.image_size,
-      quality: "high",
-      output_format: "png",
+    const interaction = await gemini.interactions.create({
+      model: GEMINI_IMAGE_MODEL,
+      input: plan.prompt,
+      response_modalities: ["IMAGE"],
+      generation_config: {
+        image_config: {
+          aspect_ratio: plan.aspect_ratio,
+          image_size: plan.image_size,
+        },
+      },
     });
 
-    const firstImage = Array.isArray(result?.data) ? result.data[0] : null;
-    const b64 = normalizeText(firstImage?.b64_json, "");
+    const images = extractGeminiImagesFromInteraction(interaction);
+    const firstImage = images[0];
 
-    if (!b64) {
-      throw new Error(`Image generation failed for ${plan.banner_name}`);
+    if (!firstImage?.data) {
+      throw new Error(`Gemini image generation failed for ${plan.banner_name}`);
     }
 
-    const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}.png`;
-    const saved = await saveBase64PngToPublic("generated-images", fileBase, b64);
+    const ext =
+      firstImage.mime_type === "image/jpeg"
+        ? "jpg"
+        : firstImage.mime_type === "image/webp"
+        ? "webp"
+        : "png";
+
+    const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}.${ext}`;
+    const saved = await saveBase64PngToPublic(
+      "generated-images",
+      fileBase,
+      firstImage.data
+    );
 
     generated_images.push({
       banner_name: plan.banner_name,
       requested_size: plan.requested_size,
       image_size: plan.image_size,
+      aspect_ratio: plan.aspect_ratio,
       prompt: plan.prompt,
-      mime_type: "image/png",
+      mime_type: firstImage.mime_type,
       generation_status: "generated",
       has_image_data: true,
       image_public_url: saved.public_url,
       image_file_path: saved.file_path,
       image_relative_path: saved.relative_path,
+      generator: "gemini",
+      generator_model: GEMINI_IMAGE_MODEL,
     });
   }
 
   return {
     ok: true,
     ai_generated: true,
-    note: "image_generator ai",
+    note: "image_generator ai via gemini",
     brief_title: briefTitle,
     planner_brief: getTaskInput(task).planner_brief ?? null,
     assets,
@@ -2588,9 +2674,10 @@ async function handleRequest(req, res) {
       service: "agent-runner",
       uptime_sec: Math.round(process.uptime()),
       now: new Date().toISOString(),
-      ai_enabled: Boolean(openai),
+      ai_enabled: Boolean(openai || gemini),
       openai_enabled: Boolean(openai),
       gemini_enabled: Boolean(gemini),
+      gemini_image_model: gemini ? GEMINI_IMAGE_MODEL : null,
       public_dir: PUBLIC_DIR,
       public_asset_base_url: PUBLIC_ASSET_BASE_URL || null,
     });
@@ -2641,13 +2728,13 @@ async function main() {
   await auth();
 
   if (openai) {
-    console.log("🤖 OpenAI is enabled for copywriter + image_generator");
+    console.log("🤖 OpenAI is enabled for copywriter");
   } else {
-    console.log("⚠️ OpenAI is not configured. Using fallback outputs.");
+    console.log("⚠️ OpenAI is not configured. Copywriter will use fallback outputs.");
   }
 
   if (gemini) {
-    console.log("🟣 Gemini is configured and ready");
+    console.log(`🟣 Gemini is configured and ready (${GEMINI_IMAGE_MODEL})`);
   } else {
     console.log("⚠️ Gemini is not configured yet.");
   }
