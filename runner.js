@@ -655,7 +655,7 @@ async function readAssetBuffer(urlOrPath) {
   if (!value) return null;
 
   if (value.startsWith("http://") || value.startsWith("https://")) {
-    return await readUrlAsBuffer(url);
+    return await readUrlAsBuffer(value);
   }
 
   if (value.startsWith("/files/")) {
