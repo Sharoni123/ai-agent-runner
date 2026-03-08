@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import PocketBase from "pocketbase";
 import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
 const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
@@ -34,6 +35,10 @@ const pb = new PocketBase(PB_URL);
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+const gemini = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
 let sharpModulePromise = null;
@@ -1398,7 +1403,7 @@ async function generateImagesWithAI(task, related = {}) {
 
   const plans =
     bannerPlans.length > 0
-      ? bannerPlans.map((banner, index) => ({
+      ? banners.map((banner, index) => ({
           banner_name: normalizeText(banner.name, `banner_${index + 1}`),
           requested_size: normalizeText(banner.size, "1080x1080"),
           image_size: mapBannerSizeToImageSize(
@@ -2584,6 +2589,8 @@ async function handleRequest(req, res) {
       uptime_sec: Math.round(process.uptime()),
       now: new Date().toISOString(),
       ai_enabled: Boolean(openai),
+      openai_enabled: Boolean(openai),
+      gemini_enabled: Boolean(gemini),
       public_dir: PUBLIC_DIR,
       public_asset_base_url: PUBLIC_ASSET_BASE_URL || null,
     });
@@ -2637,6 +2644,12 @@ async function main() {
     console.log("🤖 OpenAI is enabled for copywriter + image_generator");
   } else {
     console.log("⚠️ OpenAI is not configured. Using fallback outputs.");
+  }
+
+  if (gemini) {
+    console.log("🟣 Gemini is configured and ready");
+  } else {
+    console.log("⚠️ Gemini is not configured yet.");
   }
 
   const server = http.createServer((req, res) => {
