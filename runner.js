@@ -10,14 +10,11 @@ const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
 const PORT = Number(process.env.PORT || 3001);
-
 const PUBLIC_DIR = process.env.PUBLIC_DIR
   ? path.resolve(process.env.PUBLIC_DIR)
   : path.resolve(process.cwd(), "public");
-
 const GENERATED_IMAGES_DIR = path.join(PUBLIC_DIR, "generated-images");
 const BANNERS_DIR = path.join(PUBLIC_DIR, "banners");
-
 const PUBLIC_ASSET_BASE_URL = (
   process.env.PUBLIC_ASSET_BASE_URL ||
   process.env.RUNNER_PUBLIC_BASE_URL ||
@@ -34,11 +31,9 @@ if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
 }
 
 const pb = new PocketBase(PB_URL);
-
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
-
 const gemini = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
@@ -47,7 +42,6 @@ const GEMINI_IMAGE_MODEL =
   process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
 
 let sharpModulePromise = null;
-
 function getSharp() {
   if (!sharpModulePromise) {
     sharpModulePromise = import("sharp")
@@ -97,11 +91,9 @@ function normalizeText(value, fallback = "") {
     const trimmed = value.trim();
     return trimmed || fallback;
   }
-
   if (typeof value === "number") {
     return String(value);
   }
-
   return fallback;
 }
 
@@ -109,14 +101,12 @@ function normalizeStringArray(value) {
   if (Array.isArray(value)) {
     return value.map((v) => normalizeText(v)).filter(Boolean);
   }
-
   if (typeof value === "string") {
     return value
       .split("\n")
       .map((v) => v.trim())
       .filter(Boolean);
   }
-
   return [];
 }
 
@@ -195,18 +185,15 @@ function getWordCount(task, fallback = 450) {
 function getRevisionNotes(task) {
   const input = getTaskInput(task);
   const notes = input.revision_notes;
-
   if (Array.isArray(notes)) {
     return notes.map((n) => normalizeText(n)).filter(Boolean);
   }
-
   if (typeof notes === "string") {
     return notes
       .split("\n")
       .map((n) => n.trim())
       .filter(Boolean);
   }
-
   return [];
 }
 
@@ -221,11 +208,9 @@ function getPreviousOutput(task) {
 function getKeyPoints(task) {
   const input = getTaskInput(task);
   const raw = input.key_points;
-
   if (Array.isArray(raw)) {
     return raw.map((v) => normalizeText(v)).filter(Boolean).slice(0, 8);
   }
-
   if (typeof raw === "string") {
     return raw
       .split("\n")
@@ -233,7 +218,6 @@ function getKeyPoints(task) {
       .filter(Boolean)
       .slice(0, 8);
   }
-
   return [];
 }
 
@@ -249,7 +233,6 @@ function getAssets(task) {
   const input = getTaskInput(task);
   const rawAssets =
     input.assets && typeof input.assets === "object" ? input.assets : {};
-
   const logos = normalizeStringArray(
     rawAssets.logos || input.logo_urls || input.logos
   );
@@ -259,7 +242,6 @@ function getAssets(task) {
   const inspiration = normalizeStringArray(
     rawAssets.inspiration || input.inspiration_urls || input.inspiration
   );
-
   return {
     logos,
     images,
@@ -297,38 +279,29 @@ function countWords(text) {
 function normalizeArticleParagraphs(text) {
   const raw = String(text || "").replace(/\r/g, "").trim();
   if (!raw) return [];
-
   const byDoubleBreak = raw
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter(Boolean);
-
   if (byDoubleBreak.length >= 3) return byDoubleBreak;
-
   const sentences = raw
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-
   if (sentences.length <= 3) return [raw];
-
   const chunks = [];
   const chunkSize = Math.max(2, Math.ceil(sentences.length / 5));
-
   for (let i = 0; i < sentences.length; i += chunkSize) {
     chunks.push(sentences.slice(i, i + chunkSize).join(" "));
   }
-
   return chunks;
 }
 
 function clampWordRange(text, minWords = 430, maxWords = 500) {
   let words = String(text).split(/\s+/).filter(Boolean);
-
   if (words.length > maxWords) {
     words = words.slice(0, maxWords);
   }
-
   return words.join(" ");
 }
 
@@ -360,19 +333,15 @@ function buildKeyPointsSentence(keyPoints) {
 
 function buildAssetsSummaryText(assets) {
   const parts = [];
-
   if (assets.logos.length) {
     parts.push(`לוגואים: ${assets.logos.join(", ")}`);
   }
-
   if (assets.images.length) {
     parts.push(`תמונות שסופקו: ${assets.images.join(", ")}`);
   }
-
   if (assets.inspiration.length) {
     parts.push(`קישורי השראה: ${assets.inspiration.join(", ")}`);
   }
-
   return parts.join(" | ");
 }
 
@@ -392,17 +361,14 @@ function pickArray(value) {
 
 function mapBannerSizeToImageSize(size) {
   const normalized = normalizeText(size).toLowerCase();
-
   if (normalized === "1080x1080") return "1024x1024";
   if (normalized === "1080x1920") return "1024x1536";
   if (normalized === "1200x628") return "1536x1024";
-
   return "1024x1024";
 }
 
 function mapBannerSizeToGeminiImageConfig(size) {
   const normalized = normalizeText(size).toLowerCase().replace(/\s+/g, "");
-
   if (normalized === "1080x1080" || normalized === "1000x1000") {
     return {
       aspect_ratio: "1:1",
@@ -411,7 +377,6 @@ function mapBannerSizeToGeminiImageConfig(size) {
       output_height: 1080,
     };
   }
-
   if (normalized === "1080x1920") {
     return {
       aspect_ratio: "9:16",
@@ -420,7 +385,6 @@ function mapBannerSizeToGeminiImageConfig(size) {
       output_height: 1920,
     };
   }
-
   if (
     normalized === "1980x1020" ||
     normalized === "1200x628" ||
@@ -433,7 +397,6 @@ function mapBannerSizeToGeminiImageConfig(size) {
       output_height: 628,
     };
   }
-
   return {
     aspect_ratio: "1:1",
     image_size: "1k",
@@ -444,17 +407,14 @@ function mapBannerSizeToGeminiImageConfig(size) {
 
 function extractGeminiInlineImages(response) {
   const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
-
   const parts = candidates.flatMap((candidate) => {
     const contentParts = candidate?.content?.parts;
     return Array.isArray(contentParts) ? contentParts : [];
   });
-
   return parts
     .map((part) => {
       const inline = part?.inlineData || part?.inline_data;
       if (!inline?.data) return null;
-
       return {
         mime_type: normalizeText(
           inline.mimeType || inline.mime_type,
@@ -469,28 +429,23 @@ function extractGeminiInlineImages(response) {
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 180000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
     const res = await fetch(url, {
       ...options,
       signal: controller.signal,
     });
-
     const text = await res.text();
     let json = null;
-
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
       json = null;
     }
-
     if (!res.ok) {
       throw new Error(
         `Gemini HTTP ${res.status}: ${json?.error?.message || text || "Unknown error"}`
       );
     }
-
     return json;
   } catch (err) {
     if (err?.name === "AbortError") {
@@ -506,11 +461,9 @@ async function generateGeminiImage(plan) {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is missing");
   }
-
   const url =
     `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_IMAGE_MODEL)}:generateContent` +
     `?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
-
   const body = {
     contents: [
       {
@@ -524,7 +477,6 @@ async function generateGeminiImage(plan) {
       },
     },
   };
-
   const response = await fetchJsonWithTimeout(
     url,
     {
@@ -536,27 +488,22 @@ async function generateGeminiImage(plan) {
     },
     180000
   );
-
   const images = extractGeminiInlineImages(response);
   const firstImage = images[0];
-
   if (!firstImage?.data) {
     throw new Error(
       `Gemini image generation returned no inline image for ${plan.banner_name}`
     );
   }
-
   return firstImage;
 }
 
 function parseBannerDimensions(size) {
   const normalized = normalizeText(size, "1080x1080");
   const match = normalized.match(/^(\d+)\s*x\s*(\d+)$/i);
-
   if (!match) {
     return { width: 1080, height: 1080 };
   }
-
   return {
     width: Number(match[1]) || 1080,
     height: Number(match[2]) || 1080,
@@ -582,12 +529,9 @@ function relativePathToPublicUrl(relativePath) {
 async function saveBufferToPublic(subdir, filename, buffer) {
   const dir = path.join(PUBLIC_DIR, subdir);
   await ensureDir(dir);
-
   const filePath = path.join(dir, filename);
   await fs.writeFile(filePath, buffer);
-
   const relativePath = path.join(subdir, filename).replaceAll("\\", "/");
-
   return {
     file_path: filePath,
     relative_path: relativePath,
@@ -609,17 +553,12 @@ async function saveGeneratedImageToPublic({
   targetHeight,
 }) {
   const sharp = await getSharp();
-
   const inputBuffer = Buffer.from(base64, "base64");
-
   let ext = "png";
   if (mimeType === "image/jpeg") ext = "jpg";
   else if (mimeType === "image/webp") ext = "webp";
-
   const finalFilename = `${filenameBase}.${ext}`;
-
   let outputBuffer = inputBuffer;
-
   if (targetWidth && targetHeight) {
     outputBuffer = await sharp(inputBuffer)
       .resize(targetWidth, targetHeight, {
@@ -629,7 +568,6 @@ async function saveGeneratedImageToPublic({
       .toFormat(ext === "jpg" ? "jpeg" : ext)
       .toBuffer();
   }
-
   return await saveBufferToPublic(subdir, finalFilename, outputBuffer);
 }
 
@@ -653,37 +591,30 @@ async function readUrlAsBuffer(url) {
 async function readAssetBuffer(urlOrPath) {
   const value = normalizeText(urlOrPath);
   if (!value) return null;
-
   if (value.startsWith("http://") || value.startsWith("https://")) {
     return await readUrlAsBuffer(value);
   }
-
   if (value.startsWith("/files/")) {
     const relative = value.replace(/^\/files\//, "");
     return await readLocalFileSafe(path.join(PUBLIC_DIR, relative));
   }
-
   if (value.startsWith("/")) {
     return await readLocalFileSafe(
       path.join(PUBLIC_DIR, value.replace(/^\/+/, ""))
     );
   }
-
   if (path.isAbsolute(value)) {
     return await readLocalFileSafe(value);
   }
-
   return await readLocalFileSafe(path.join(PUBLIC_DIR, value));
 }
 
 function wrapText(text, maxCharsPerLine) {
   const safe = normalizeText(text);
   if (!safe) return [];
-
   const words = safe.split(/\s+/).filter(Boolean);
   const lines = [];
   let current = "";
-
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
     if (candidate.length <= maxCharsPerLine) {
@@ -693,7 +624,6 @@ function wrapText(text, maxCharsPerLine) {
       current = word;
     }
   }
-
   if (current) lines.push(current);
   return lines;
 }
@@ -701,7 +631,6 @@ function wrapText(text, maxCharsPerLine) {
 function getBannerLayoutMetrics(width, height) {
   const isVertical = height > width * 1.2;
   const isLandscape = width > height * 1.2;
-
   if (isVertical) {
     return {
       paddingX: Math.round(width * 0.08),
@@ -716,7 +645,6 @@ function getBannerLayoutMetrics(width, height) {
       maxSubChars: 28,
     };
   }
-
   if (isLandscape) {
     return {
       paddingX: Math.round(width * 0.06),
@@ -731,7 +659,6 @@ function getBannerLayoutMetrics(width, height) {
       maxSubChars: 38,
     };
   }
-
   return {
     paddingX: Math.round(width * 0.07),
     topY: Math.round(height * 0.16),
@@ -746,6 +673,7 @@ function getBannerLayoutMetrics(width, height) {
   };
 }
 
+// ─── KEPT AS FALLBACK — used by composeBannerPng (sharp fallback path) ───────
 function buildBannerOverlaySvg({
   width,
   height,
@@ -758,12 +686,10 @@ function buildBannerOverlaySvg({
   const m = getBannerLayoutMetrics(width, height);
   const headlineLines = wrapText(headline, m.maxHeadlineChars).slice(0, 3);
   const subheadlineLines = wrapText(subheadline, m.maxSubChars).slice(0, 3);
-
   const overlayX = m.paddingX;
   const overlayW = width - m.paddingX * 2;
   const overlayY = Math.round(height * 0.08);
   const overlayH = Math.round(height * 0.84);
-
   const headlineStartY = m.topY;
   const headlineLineGap = Math.round(m.headlineSize * 1.22);
   const subStartY =
@@ -771,11 +697,9 @@ function buildBannerOverlaySvg({
     headlineLines.length * headlineLineGap +
     Math.round(height * 0.03);
   const subLineGap = Math.round(m.subheadlineSize * 1.5);
-
   const buttonY = height - Math.round(height * 0.19);
   const buttonX = overlayX;
   const disclaimerY = height - Math.round(height * 0.05);
-
   const headlineText = headlineLines
     .map((line, index) => {
       const y = headlineStartY + index * headlineLineGap;
@@ -786,7 +710,6 @@ function buildBannerOverlaySvg({
       }" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>`;
     })
     .join("");
-
   const subText = subheadlineLines
     .map((line, index) => {
       const y = subStartY + index * subLineGap;
@@ -797,7 +720,6 @@ function buildBannerOverlaySvg({
       }" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>`;
     })
     .join("");
-
   const logoRect =
     logoInsetWidth > 0
       ? `<rect x="${overlayX}" y="${Math.round(
@@ -806,7 +728,6 @@ function buildBannerOverlaySvg({
           height * 0.08
         )}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />`
       : "";
-
   return `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -820,14 +741,11 @@ function buildBannerOverlaySvg({
       <stop offset="100%" stop-color="rgba(0,180,216,0.12)"/>
     </linearGradient>
   </defs>
-
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#darkFade)"/>
   <rect x="${overlayX}" y="${overlayY}" rx="28" ry="28" width="${overlayW}" height="${overlayH}" fill="url(#cardGlow)" stroke="rgba(255,255,255,0.14)"/>
   ${logoRect}
-
   ${headlineText}
   ${subText}
-
   <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(
     m.buttonHeight / 2
   )}" ry="${Math.round(m.buttonHeight / 2)}" width="${
@@ -838,7 +756,6 @@ function buildBannerOverlaySvg({
   }" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${
     m.ctaSize
   }" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
-
   <text x="${width - overlayX}" y="${disclaimerY}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.disclaimerSize}" font-weight="400" fill="rgba(255,255,255,0.82)">${escapeXml(disclaimer)}</text>
 </svg>
   `.trim();
@@ -855,21 +772,14 @@ function buildArticleParagraphs(task) {
   const keyPoints = getKeyPoints(task);
   const additionalContext = getAdditionalContext(task);
   const cta = getCTA(task);
-
   const contextSentence = buildContextSentence(additionalContext);
   const keyPointsSentence = buildKeyPointsSentence(keyPoints);
-
   return [
     `${briefTitle} מציב על השולחן הצעה שקשה להתעלם ממנה, במיוחד בתקופה שבה משקיעים מחפשים עסקה שמחברת בין מחיר כניסה נגיש, מיקום נכון ופוטנציאל ברור להשבחה. במקום להסתפק במסר כללי על נדל"ן, כאן מדובר בהזדמנות שמכוונת בדיוק למה שמעניין היום קהל שמחפש ערך אמיתי: להבין איפה נמצא היתרון, למה דווקא עכשיו, ואיך עסקה אחת יכולה לייצר שילוב בין סיכוי כלכלי גבוה לבין תחושת ביטחון גדולה יותר בהחלטה.${contextSentence}`,
-
-    `אחד היתרונות המשמעותיים בעסקה מהסוג הזה הוא היכולת להיכנס לשוק עם תנאי פתיחה אטרקטיביים יחסית, מבלי להידרש בהכרח להון עצום כבר בשלב הראשון. עבור ${audience}, זהו בדיוק המקום שבו ההבדל בין עסקה “מעניינת” לעסקה “חזקה” מתחיל להתבהר. כאשר המחיר מדויק, המיקום נכון והסיפור הכולל יושב על היגיון מסחרי ברור, הרבה יותר קל לראות איך ההזדמנות הזו לא נשענת רק על חלום, אלא על יסודות שמאפשרים לה להיראות רלוונטית גם בטווח הקרוב וגם בטווח הארוך.`,
-
+    `אחד היתרונות המשמעותיים בעסקה מהסוג הזה הוא היכולת להיכנס לשוק עם תנאי פתיחה אטרקטיביים יחסית, מבלי להידרש בהכרח להון עצום כבר בשלב הראשון. עבור ${audience}, זהו בדיוק המקום שבו ההבדל בין עסקה "מעניינת" לעסקה "חזקה" מתחיל להתבהר. כאשר המחיר מדויק, המיקום נכון והסיפור הכולל יושב על היגיון מסחרי ברור, הרבה יותר קל לראות איך ההזדמנות הזו לא נשענת רק על חלום, אלא על יסודות שמאפשרים לה להיראות רלוונטית גם בטווח הקרוב וגם בטווח הארוך.`,
     `הזווית המרכזית כאן היא ${angle}, ולכן חשוב לבחון לא רק את המחיר או את הכותרת הראשית, אלא את מכלול המרכיבים שהופכים את ההצעה למשמעותית באמת. מיקום טוב, נגישות, ביקוש פוטנציאלי, סביבת פיתוח ותנאים מסחריים נוחים הם לא פרטים שוליים, אלא הלב של העסקה כולה.${keyPointsSentence} כשמחברים את כל המרכיבים האלה יחד, מתקבלת תמונה רחבה יותר: לא רק נכס או יחידה על הנייר, אלא מהלך שיכול להתאים למי שמבקש לזהות מראש את המקומות שבהם פוטנציאל כלכלי פוגש מחיר נכון.`,
-
-    `מעבר לנתונים עצמם, יש כאן גם היגיון שיווקי ונדל"ני ברור. שוק שמציע הזדמנויות אמיתיות הוא בדרך כלל שוק שבו קיימת תנועה, קיימת ציפייה להמשך התפתחות, וקיימת סיבה טובה לכך שקהל רחב מגלה עניין. זו בדיוק הנקודה שבה משקיעים מנוסים שואלים לא רק “כמה זה עולה”, אלא גם “מה הסיפור שמאחורי זה”, “מה עשוי לקרות בהמשך”, ו”איפה נמצאת נקודת היתרון ביחס לאלטרנטיבות אחרות”. כאשר יש תשובות טובות לשאלות הללו, העסקה מתחילה להיראות הרבה יותר מגובשת, רצינית ובעלת פוטנציאל ממשי.`,
-
+    `מעבר לנתונים עצמם, יש כאן גם היגיון שיווקי ונדל"ני ברור. שוק שמציע הזדמנויות אמיתיות הוא בדרך כלל שוק שבו קיימת תנועה, קיימת ציפייה להמשך התפתחות, וקיימת סיבה טובה לכך שקהל רחב מגלה עניין. זו בדיוק הנקודה שבה משקיעים מנוסים שואלים לא רק "כמה זה עולה", אלא גם "מה הסיפור שמאחורי זה", "מה עשוי לקרות בהמשך", ו"איפה נמצאת נקודת היתרון ביחס לאלטרנטיבות אחרות". כאשר יש תשובות טובות לשאלות הללו, העסקה מתחילה להיראות הרבה יותר מגובשת, רצינית ובעלת פוטנציאל ממשי.`,
     `לצד זה, חשוב לזכור שגם בנדל"ן, כמו בכל תחום השקעה, ההבדל המשמעותי נמצא לא פעם ביכולת לזהות מוקדם הזדמנות שמציעה יתרון תמחורי או יתרון מיקומי לפני שהשוק הרחב מתמחר אותה במלואה. זו בדיוק הסיבה שבגללה עסקאות מסוימות מייצרות עניין מיוחד: הן מצליחות לחבר בין כניסה נוחה יותר לבין אופק שיכול להיות חזק יותר בעתיד. עבור מי שמבקש לבנות תיק חכם, לגוון השקעות או לבחון מהלך חדש, מדובר בזווית שמצדיקה בדיקה רצינית ולא רק הסתכלות שטחית.`,
-
     `בשורה התחתונה, ${briefTitle} הוא מהלך שמבקש לדבר בשפה שכל משקיע רוצה לשמוע: מחיר ברור, היגיון ברור ופוטנציאל ברור יותר. כאשר העסקה נשענת על נתונים נכונים, על מיקום שיודע לייצר עניין ועל מסר שיווקי שמחובר למציאות, היא מצליחה לבלוט בשוק עמוס אפשרויות. מי שמחפש את ההזדמנות הבאה שלו לא צריך להסתפק בכותרת טובה בלבד — אלא לבדוק לעומק, לשאול את השאלות הנכונות ולבחון אם זו בדיוק הנקודה שבה כדאי להיכנס. ${cta}`,
   ];
 }
@@ -880,14 +790,11 @@ function buildArticleCreateOutput(task) {
   const audience = getAudience(task);
   const angle = getAngle(task);
   const cta = getCTA(task);
-
   const title = buildArticleTitle(briefTitle);
   const subtitle = buildArticleSubtitle(audience, angle);
-
   const paragraphs = buildArticleParagraphs(task);
   const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const finalParagraphs = normalizeArticleParagraphs(articleText);
-
   const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
@@ -895,7 +802,6 @@ function buildArticleCreateOutput(task) {
   ${paragraphsToHtml(finalParagraphs)}
 </section>
   `.trim();
-
   return {
     ok: true,
     note: "copywriter article create fallback",
@@ -920,24 +826,18 @@ function buildArticleRevisionParagraphs(task, previousOutput, notes) {
     ? notes.join("; ")
     : "בוצע חידוד כללי של המסר, הזרימה והניסוח.";
   const prevText = normalizeText(previousOutput.article_text, "");
-
   return [
     `${briefTitle} מוצג כאן בגרסה מחודשת ומדויקת יותר, לאחר מעבר על ההערות שנמסרו ועל הכיוון שהתוכן צריך להעביר. המטרה בעדכון כזה אינה לשנות סתם מילים, אלא לחזק את מה שחשוב באמת: הכותרת, הזווית, הזרימה והיכולת של הכתבה להציג את ההזדמנות בצורה משכנעת, טבעית וברורה יותר.`,
-
-    `במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק “תוקן”, אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${
+    `במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק "תוקן", אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${
       additionalContext
         ? `בנוסף, נשמר חיבור ישיר גם למידע המשלים שנמסר: ${additionalContext}.`
         : ""
     }`,
-
     `כאשר בוחנים כתבה שיווקית טובה, מה שחשוב הוא לא רק אילו נתונים מוצגים, אלא גם איך הם מוגשים. לכן נעשה כאן מאמץ להחליק את המעברים בין הרעיונות, להסיר ניסוחים חלשים או כלליים מדי, ולחדד את המקומות שבהם הכתבה צריכה להרגיש בטוחה יותר, מקצועית יותר ורלוונטית יותר למי שקורא אותה בפועל.`,
-
     `הגרסה הקודמת כללה בין היתר את הפתיחה הבאה: ${prevText.slice(0, 220)}${
       prevText.length > 220 ? "..." : ""
     } מתוך הבסיס הזה בוצע שכתוב שמבקש לשמור על מה שהיה נכון, אבל לשפר את המקומות שהיו זקוקים לדיוק, להעמקה או לנוכחות חזקה יותר של המסר המרכזי.`,
-
     `בפועל, כתבה שיווקית חזקה צריכה לגרום לקורא להבין במהירות מה מייחד את ההזדמנות, מה מצדיק את הבדיקה שלה, ואיזה ערך היא עשויה לייצר. זו הסיבה שהנוסח החדש מקפיד יותר על איזון בין תוכן ענייני לבין שפה שיווקית בטוחה, מבלי לגלוש להגזמות או לניסוחים מלאכותיים מדי.`,
-
     `בסופו של דבר, ${briefTitle} בגרסה הזו נועד להרגיש שלם, מהודק ומשכנע יותר. אם יהיה צורך, אפשר להמשיך מכאן לעוד סבב חידוד ממוקד — בין אם ברמת הטון, הכותרת, אורך הכתבה או ההדגשים המרכזיים — אבל כבר עכשיו מדובר בנוסח שמכוון טוב יותר למטרה שלו ומשקף את ההזדמנות בצורה בשלה יותר.`,
   ];
 }
@@ -948,15 +848,12 @@ function buildArticleRevisionOutput(task) {
   const previousOutput = getPreviousOutput(task);
   const notes = getRevisionNotes(task);
   const cta = getCTA(task);
-
   const title = `${normalizeText(previousOutput.title, briefTitle)} – גרסה מעודכנת`;
   const subtitle =
     "נוסח מחודש עם חידוד המסר, שיפור הזרימה והבלטה ברורה יותר של היתרונות המרכזיים.";
-
   const paragraphs = buildArticleRevisionParagraphs(task, previousOutput, notes);
   const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const finalParagraphs = normalizeArticleParagraphs(articleText);
-
   const articleHtml = `
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
@@ -964,7 +861,6 @@ function buildArticleRevisionOutput(task) {
   ${paragraphsToHtml(finalParagraphs)}
 </section>
   `.trim();
-
   return {
     ok: true,
     note: "copywriter article revision fallback",
@@ -988,7 +884,6 @@ function buildAdsCreateOutput(task) {
   const angle = getAngle(task);
   const cta = getCTA(task);
   const language = getLanguage(task);
-
   return {
     ok: true,
     note: "copywriter ads create fallback",
@@ -1017,14 +912,12 @@ function buildAdsRevisionOutput(task) {
   const notes = getRevisionNotes(task);
   const previousOutput = getPreviousOutput(task);
   const cta = getCTA(task);
-
   const previousHeadlines = Array.isArray(previousOutput.headlines)
     ? previousOutput.headlines
     : [];
   const previousTexts = Array.isArray(previousOutput.primary_texts)
     ? previousOutput.primary_texts
     : [];
-
   return {
     ok: true,
     note: "copywriter ads revision fallback",
@@ -1220,7 +1113,6 @@ async function createStructuredResponse({
   if (!openai) {
     throw new Error("OPENAI_API_KEY is missing");
   }
-
   const response = await openai.responses.create({
     model,
     input: [
@@ -1236,13 +1128,10 @@ async function createStructuredResponse({
       },
     },
   });
-
   const parsed = parseJsonSafely(response.output_text);
-
   if (!parsed || typeof parsed !== "object") {
     throw new Error("OpenAI returned invalid JSON");
   }
-
   return parsed;
 }
 
@@ -1258,17 +1147,14 @@ async function generateArticleWithAI(task) {
   const previousOutput = getPreviousOutput(task);
   const additionalContext = getAdditionalContext(task);
   const mode = getMode(task);
-
   const keyPointsText =
     keyPoints.length > 0
       ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")
       : "אין";
-
   const previousText = normalizeText(previousOutput.article_text, "");
   const previousTitle = normalizeText(previousOutput.title, "");
   const revisionNotesText =
     notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
-
   const systemPrompt = [
     'אתה קופירייטר נדל"ן מקצועי שכותב בעברית טבעית, שיווקית, זורמת ואמינה.',
     'אתה כותב כתבה אמיתית שמיועדת לפרסום באתר חדשות/נדל"ן, בסגנון איכותי של כתבה שיווקית מקצועית.',
@@ -1281,7 +1167,6 @@ async function generateArticleWithAI(task) {
     "כתוב בטון בטוח, מקצועי, חד, זורם, אמין ולא רובוטי.",
     "כתוב כתבה מלאה באורך 420-480 מילים.",
   ].join(" ");
-
   const userPrompt = [
     `כתוב כתבה שיווקית מקצועית בעברית לפרסום באתר.`,
     `נושא הכתבה: ${briefTitle}`,
@@ -1304,7 +1189,6 @@ async function generateArticleWithAI(task) {
   ]
     .filter(Boolean)
     .join("\n\n");
-
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -1312,7 +1196,6 @@ async function generateArticleWithAI(task) {
     schemaName: "copywriter_article",
     schema: articleSchema(),
   });
-
   const bannedPatterns = [
     "כאשר כותבים כתבה",
     "כתבה טובה",
@@ -1323,30 +1206,23 @@ async function generateArticleWithAI(task) {
     "כדי שכתבה תעבוד",
     "הכתבה צריכה",
   ];
-
   const aiArticleText = normalizeText(ai.article_text);
-
   if (bannedPatterns.some((pattern) => aiArticleText.includes(pattern))) {
     throw new Error("AI returned meta-writing text instead of a real article");
   }
-
   const articleText = clampWordRange(aiArticleText, 430, 500);
   const articleParagraphs = normalizeArticleParagraphs(articleText);
-
   const finalTitle = normalizeText(ai.title, buildArticleTitle(briefTitle));
   const finalSubtitle = normalizeText(
     ai.subtitle,
     buildArticleSubtitle(audience, angle)
   );
   const finalCta = normalizeText(ai.cta, cta);
-
   const finalSeoTitles =
     Array.isArray(ai.seo_titles) && ai.seo_titles.length === 3
       ? ai.seo_titles.map((v) => normalizeText(v)).filter(Boolean)
       : buildSeoTitles(briefTitle);
-
   const finalArticleText = articleParagraphs.join("\n\n");
-
   const articleHtml = `
 <section dir="rtl" lang="he">
   <h1>${escapeHtml(finalTitle)}</h1>
@@ -1354,7 +1230,6 @@ async function generateArticleWithAI(task) {
   ${paragraphsToHtml(articleParagraphs)}
 </section>
   `.trim();
-
   return {
     ok: true,
     ai_generated: true,
@@ -1386,7 +1261,6 @@ async function generateAdsWithAI(task) {
   const previousOutput = getPreviousOutput(task);
   const additionalContext = getAdditionalContext(task);
   const mode = getMode(task);
-
   const previousHeadlines = Array.isArray(previousOutput.headlines)
     ? previousOutput.headlines.join("\n")
     : "אין";
@@ -1395,14 +1269,12 @@ async function generateAdsWithAI(task) {
     : "אין";
   const revisionNotesText =
     notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
-
   const systemPrompt = [
     "אתה קופירייטר שיווקי מקצועי שכותב בעברית טבעית, ברורה ומשכנעת.",
     "המטרה שלך היא להחזיר JSON בלבד לפי הסכמה שניתנה.",
     "אין להחזיר markdown, אין הסברים, אין טקסט מחוץ ל-JSON.",
     "כתוב ניסוחים קצרים, חדים, רלוונטיים ומותאמים לקהל היעד.",
   ].join(" ");
-
   const userPrompt = [
     `סוג משימה: ${
       mode === "revise" ? "עריכת מודעות קיימות" : "יצירת מודעות חדשות"
@@ -1424,7 +1296,6 @@ async function generateAdsWithAI(task) {
   ]
     .filter(Boolean)
     .join("\n\n");
-
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -1432,7 +1303,6 @@ async function generateAdsWithAI(task) {
     schemaName: "copywriter_ads",
     schema: adsSchema(),
   });
-
   return {
     ok: true,
     ai_generated: true,
@@ -1460,12 +1330,10 @@ async function generateVisualDirectionWithAI(task) {
   const keyPoints = getKeyPoints(task);
   const assets = getAssets(task);
   const plannerBrief = getTaskInput(task).planner_brief ?? null;
-
   const assetsText = buildAssetsSummaryText(assets) || "לא סופקו נכסים ויזואליים";
   const plannerBriefText = plannerBrief
     ? JSON.stringify(plannerBrief, null, 2)
     : "אין";
-
   const systemPrompt = [
     "אתה מנהל קריאייטיב וארט דיירקטור שיווקי בכיר.",
     'אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין נדל"ן.',
@@ -1475,7 +1343,6 @@ async function generateVisualDirectionWithAI(task) {
     "אם סופקו לוגואים, תמונות או לינקי השראה — צריך להתייחס אליהם כאל חומרים מחייבים.",
     "כתוב בעברית טבעית וברורה.",
   ].join(" ");
-
   const userPrompt = [
     `בנה כיוון קריאייטיב מלא לקמפיין הזה.`,
     `נושא: ${briefTitle}`,
@@ -1494,7 +1361,6 @@ async function generateVisualDirectionWithAI(task) {
     "landing_page_brief צריך להסביר איך דף הנחיתה צריך להיראות ולהרגיש.",
     "video_brief צריך להיות כיוון קצר וברור לסרטון שיווקי.",
   ].join("\n\n");
-
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -1502,7 +1368,6 @@ async function generateVisualDirectionWithAI(task) {
     schemaName: "visual_director_brief",
     schema: visualDirectorSchema(),
   });
-
   return {
     ok: true,
     ai_generated: true,
@@ -1537,7 +1402,6 @@ async function listSiblingTasksForSourceTask(sourceTaskId) {
     const allTasks = await pb.collection("tasks").getFullList({
       sort: "-created",
     });
-
     return allTasks.filter(
       (item) => item?.input_data?.source_task_id === sourceTaskId
     );
@@ -1555,7 +1419,6 @@ function buildImageGeneratorFallback(task, related = {}) {
     ? bannerOutput.final_banners
     : [];
   const visualPrompts = pickArray(visualOutput.image_prompts);
-
   const derived =
     banners.length > 0
       ? banners.map((banner, index) => ({
@@ -1585,7 +1448,6 @@ function buildImageGeneratorFallback(task, related = {}) {
           image_public_url: "",
           image_file_path: "",
         }));
-
   return {
     ok: true,
     note: "image_generator fallback",
@@ -1604,26 +1466,21 @@ async function generateImagesWithAI(task, related = {}) {
   if (!gemini) {
     throw new Error("GEMINI_API_KEY is missing");
   }
-
   const briefTitle = getBriefTitle(task);
   const assets = getAssets(task);
   const bannerOutput = related.bannerOutput || {};
   const visualOutput = related.visualOutput || {};
-
   const bannerPlans = Array.isArray(bannerOutput.banners)
     ? bannerOutput.banners
     : Array.isArray(bannerOutput.final_banners)
     ? bannerOutput.final_banners
     : [];
-
   const visualPrompts = pickArray(visualOutput.image_prompts);
-
   let plans =
     bannerPlans.length > 0
       ? bannerPlans.map((banner, index) => {
           const requestedSize = normalizeText(banner.size, "1080x1080");
           const imageConfig = mapBannerSizeToGeminiImageConfig(requestedSize);
-
           return {
             banner_name: normalizeText(banner.name, `banner_${index + 1}`),
             requested_size: requestedSize,
@@ -1645,7 +1502,6 @@ async function generateImagesWithAI(task, related = {}) {
         })
       : visualPrompts.map((prompt, index) => {
           const imageConfig = mapBannerSizeToGeminiImageConfig("1080x1080");
-
           return {
             banner_name: `visual_${index + 1}`,
             requested_size: "1080x1080",
@@ -1676,10 +1532,8 @@ async function generateImagesWithAI(task, related = {}) {
   );
 
   const generated_images = [];
-
   for (const plan of plans) {
     console.log(`🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`);
-
     const response = await gemini.models.generateContent({
       model: GEMINI_IMAGE_MODEL,
       contents: plan.prompt,
@@ -1691,20 +1545,16 @@ async function generateImagesWithAI(task, related = {}) {
         },
       },
     });
-
     const images = extractGeminiInlineImages(response);
     const firstImage = images[0];
-
     if (!firstImage?.data) {
       throw new Error(
         `Gemini image generation returned no inline image for ${plan.banner_name}`
       );
     }
-
     const fileBase = `${slugify(briefTitle)}-${slugify(
       plan.banner_name
     )}-${randomUUID()}`;
-
     const saved = await saveGeneratedImageToPublic({
       subdir: "generated-images",
       filenameBase: fileBase,
@@ -1713,7 +1563,6 @@ async function generateImagesWithAI(task, related = {}) {
       targetWidth: plan.output_width,
       targetHeight: plan.output_height,
     });
-
     generated_images.push({
       banner_name: plan.banner_name,
       requested_size: plan.requested_size,
@@ -1783,23 +1632,19 @@ async function runImageGenerator(task) {
   const input = getTaskInput(task);
   const sourceTaskId = normalizeText(input.source_task_id, "");
   let siblings = [];
-
   if (sourceTaskId) {
     siblings = await listSiblingTasksForSourceTask(sourceTaskId);
   }
-
   const bannerTask = siblings.find(
     (item) =>
       normalizeText(item.type).toLowerCase() === "banner_set" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
-
   const visualTask = siblings.find(
     (item) =>
       normalizeText(item.type).toLowerCase() === "visual_prompts" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
-
   const related = {
     bannerTask,
     visualTask,
@@ -1816,7 +1661,6 @@ async function runImageGenerator(task) {
         ? visualTask.output_data
         : {},
   };
-
   try {
     return await generateImagesWithAI(task, related);
   } catch (e) {
@@ -1836,31 +1680,26 @@ function buildBannerRendererFallback(task, related = {}) {
   const visual = related.visualOutput || {};
   const ads = related.adOutput || {};
   const imageOutput = related.imageOutput || {};
-
   const bannerHeadlines = pickArray(visual.banner_headlines);
   const adHeadlines = pickArray(ads.headlines);
   const primaryTexts = pickArray(ads.primary_texts);
   const generatedImages = Array.isArray(imageOutput.generated_images)
     ? imageOutput.generated_images
     : [];
-
   const baseHeadline =
     firstNonEmpty(bannerHeadlines[0], adHeadlines[0], briefTitle) || briefTitle;
-
   const secondHeadline =
     firstNonEmpty(
       bannerHeadlines[1],
       adHeadlines[1],
       "הזדמנות שכדאי להכיר"
     ) || "הזדמנות שכדאי להכיר";
-
   const thirdHeadline =
     firstNonEmpty(
       bannerHeadlines[2],
       adHeadlines[2],
       "זה בדיוק הזמן להיכנס"
     ) || "זה בדיוק הזמן להיכנס";
-
   const sharedSubheadline =
     firstNonEmpty(
       primaryTexts[0],
@@ -1868,21 +1707,17 @@ function buildBannerRendererFallback(task, related = {}) {
       getAdditionalContext(task),
       "שילוב של מסר ברור, ויזואל חזק וקריאה ברורה לפעולה."
     );
-
   const visualStyle = firstNonEmpty(
     visual.visual_style,
     "מודרני, אלגנטי, יוקרתי, מסחרי ונקי"
   );
-
   const masterDirection = firstNonEmpty(
     visual.creative_direction,
     "באנרים שיווקיים חזקים עם היררכיה ברורה, כותרת בולטת, תמונה חזקה וקריאה לפעולה."
   );
-
   const colorPalette = pickArray(visual.color_palette).length
     ? pickArray(visual.color_palette)
     : ["#0F172A", "#FFFFFF", "#D4AF37", "#10B981"];
-
   function findImageRefByName(name) {
     const found = generatedImages.find(
       (img) =>
@@ -1891,7 +1726,6 @@ function buildBannerRendererFallback(task, related = {}) {
     );
     return found ? normalizeText(found.banner_name) : "";
   }
-
   return {
     ok: true,
     note: "banner_renderer fallback",
@@ -1962,7 +1796,6 @@ async function generateBannerSetWithAI(task, related = {}) {
   const additionalContext = getAdditionalContext(task);
   const cta = getCTA(task);
   const disclaimer = getDisclaimer(task);
-
   const visualPayload = JSON.stringify(visual || {}, null, 2);
   const adsPayload = JSON.stringify(ads || {}, null, 2);
   const imagePayload = JSON.stringify(imageOutput || {}, null, 2);
@@ -1972,7 +1805,6 @@ async function generateBannerSetWithAI(task, related = {}) {
     null,
     2
   );
-
   const systemPrompt = [
     "אתה Senior Banner Designer + Creative Strategist.",
     'המטרה שלך היא להכין חבילת באנרים סופית ומוכנה ל-render עבור קמפיין נדל"ן.',
@@ -1983,7 +1815,6 @@ async function generateBannerSetWithAI(task, related = {}) {
     "אם יש output של מודעות, השתמש בו לחיזוק כותרות ותועלות.",
     "כתוב בעברית ברורה.",
   ].join(" ");
-
   const userPrompt = [
     `צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle}`,
     `CTA: ${cta}`,
@@ -2006,7 +1837,6 @@ async function generateBannerSetWithAI(task, related = {}) {
     "subheadline צריך להיות קצר, מסחרי וברור.",
     "background_image_ref צריך להיות אחד מה-banner_name שכבר נוצרו אם קיימים.",
   ].join("\n\n");
-
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -2014,7 +1844,6 @@ async function generateBannerSetWithAI(task, related = {}) {
     schemaName: "banner_renderer_package_final",
     schema: bannerRendererSchema(),
   });
-
   return {
     ok: true,
     ai_generated: true,
@@ -2052,29 +1881,24 @@ async function runBannerRenderer(task) {
   const input = getTaskInput(task);
   const sourceTaskId = normalizeText(input.source_task_id, "");
   let siblings = [];
-
   if (sourceTaskId) {
     siblings = await listSiblingTasksForSourceTask(sourceTaskId);
   }
-
   const visualTask = siblings.find(
     (item) =>
       normalizeText(item.type).toLowerCase() === "visual_prompts" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
-
   const adTask = siblings.find(
     (item) =>
       normalizeText(item.type).toLowerCase() === "ad_copy" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
-
   const imageTask = siblings.find(
     (item) =>
       normalizeText(item.type).toLowerCase() === "background_images" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
-
   const related = {
     visualTask,
     adTask,
@@ -2096,7 +1920,6 @@ async function runBannerRenderer(task) {
         ? imageTask.output_data
         : {},
   };
-
   try {
     return await generateBannerSetWithAI(task, related);
   } catch (e) {
@@ -2113,7 +1936,6 @@ function buildBannerComposerFallback(task, related = {}) {
   const finalBanners = Array.isArray(bannerOutput.final_banners)
     ? bannerOutput.final_banners
     : [];
-
   return {
     ok: true,
     note: "banner_composer fallback",
@@ -2132,6 +1954,7 @@ function buildBannerComposerFallback(task, related = {}) {
   };
 }
 
+// ─── KEPT AS FALLBACK — used when Gemini banner composition fails ──────────────
 async function composeBannerPng({
   briefTitle,
   banner,
@@ -2139,7 +1962,6 @@ async function composeBannerPng({
   assets,
 }) {
   const sharp = await getSharp();
-
   const { width, height } = parseBannerDimensions(banner.size);
   const backgroundRef = normalizeText(banner.background_image_ref);
   const backgroundMeta = Array.isArray(generatedImages)
@@ -2149,17 +1971,13 @@ async function composeBannerPng({
           backgroundRef.toLowerCase()
       )
     : null;
-
   let backgroundBuffer = null;
-
   if (backgroundMeta?.image_file_path) {
     backgroundBuffer = await readAssetBuffer(backgroundMeta.image_file_path);
   }
-
   if (!backgroundBuffer && backgroundMeta?.image_public_url) {
     backgroundBuffer = await readAssetBuffer(backgroundMeta.image_public_url);
   }
-
   if (!backgroundBuffer) {
     const fallbackBgSvg = `
       <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -2173,19 +1991,15 @@ async function composeBannerPng({
         <rect width="${width}" height="${height}" fill="url(#bg)"/>
       </svg>
     `.trim();
-
     backgroundBuffer = await sharp(Buffer.from(fallbackBgSvg))
       .png()
       .toBuffer();
   }
-
   const backgroundBase = sharp(backgroundBuffer).resize(width, height, {
     fit: "cover",
     position: "centre",
   });
-
   const composites = [];
-
   const overlaySvg = buildBannerOverlaySvg({
     width,
     height,
@@ -2196,13 +2010,11 @@ async function composeBannerPng({
     logoInsetWidth:
       banner.logo_url || assets.logos[0] ? Math.round(width * 0.22) : 0,
   });
-
   composites.push({
     input: Buffer.from(overlaySvg),
     top: 0,
     left: 0,
   });
-
   const logoCandidate = firstNonEmpty(banner.logo_url, assets.logos[0], "");
   if (logoCandidate) {
     try {
@@ -2219,7 +2031,6 @@ async function composeBannerPng({
           })
           .png()
           .toBuffer();
-
         composites.push({
           input: preparedLogo,
           left: Math.round(width * 0.06),
@@ -2230,17 +2041,14 @@ async function composeBannerPng({
       console.error("⚠️ logo load failed:", e?.message || e);
     }
   }
-
   const outputBuffer = await backgroundBase
     .composite(composites)
     .png()
     .toBuffer();
-
   const fileName = `${slugify(briefTitle)}-${slugify(
     banner.name
   )}-${randomUUID()}.png`;
   const saved = await saveBufferToPublic("banners", fileName, outputBuffer);
-
   return {
     name: normalizeText(banner.name),
     size: normalizeText(banner.size),
@@ -2257,24 +2065,195 @@ async function composeBannerPng({
   };
 }
 
-async function runBannerComposer(task) {
-  const input = getTaskInput(task);
-  const sourceTaskId = normalizeText(input.source_task_id, "");
-  let siblings = [];
+// ─── NEW: Build the Gemini prompt for a complete banner with Hebrew text ──────
+function buildBannerGeminiPrompt({ banner, width, height, briefTitle, hasBackground }) {
+  const isVertical  = height > width * 1.2;
+  const isLandscape = width  > height * 1.2;
 
+  const layoutHint = isVertical
+    ? "vertical story format (9:16). Headline at the top third, CTA button near the bottom."
+    : isLandscape
+    ? "wide landscape format (16:9). Headline on the right side (RTL), CTA button on the right bottom."
+    : "square format (1:1). Headline in the upper area, CTA button at the bottom.";
+
+  const parts = [];
+
+  if (hasBackground) {
+    parts.push(
+      "You are given a real estate background photo.",
+      "Your task: produce a COMPLETE, print-ready marketing banner by compositing professional Hebrew text and UI elements directly onto this background.",
+      "Do NOT describe the result — generate the actual finished image."
+    );
+  } else {
+    parts.push(
+      `Create a complete, print-ready real estate marketing banner for the campaign: "${briefTitle}".`,
+      "Use a premium photorealistic background: modern building exterior, luxury interior, or aerial city view.",
+      "Do NOT describe the result — generate the actual finished image."
+    );
+  }
+
+  parts.push(
+    "",
+    `Canvas size: ${width} × ${height} px  |  Layout: ${layoutHint}`,
+    "Language: Hebrew (RTL — all text flows RIGHT to LEFT, text anchored to the right edge).",
+    "",
+    "═══ TEXT ELEMENTS TO RENDER ═══",
+    `HEADLINE  (very large, bold white text, right-aligned):  ${banner.headline}`,
+    `SUBHEADLINE  (medium weight, light-blue or white, right-aligned, below headline):  ${banner.subheadline}`,
+    `CTA BUTTON  (rounded pill, solid teal/green #20C997, dark text inside, right-aligned):  ${banner.cta}`,
+    `DISCLAIMER  (tiny text, semi-transparent white, bottom-right corner):  ${banner.disclaimer}`,
+    "",
+    "═══ DESIGN RULES ═══",
+    "• Apply a dark gradient overlay (top 20% opacity → bottom 65% opacity) so all text is legible.",
+    "• Rounded glass-morphism card behind headline + subheadline area (subtle, semi-transparent dark).",
+    "• Hebrew characters must be fully formed, correct glyphs, right-to-left reading order.",
+    "• Visual hierarchy: HEADLINE dominates, CTA is the second focal point.",
+    "• Font style: clean sans-serif (like Arial, Noto Sans Hebrew, or similar modern face).",
+    "• Color palette: deep navy #071F43, white #FFFFFF, teal accent #20C997.",
+    "• No watermarks, no stock-photo logos, no English text unless it was in the Hebrew original.",
+    banner.logo_url
+      ? "• Leave a 180×60 px reserved area in the TOP-LEFT corner for the brand logo (do not put text there)."
+      : "",
+    "• Output must look like a polished, production-ready social-media ad.",
+  );
+
+  return parts.filter(Boolean).join("\n");
+}
+
+// ─── NEW: Compose a full banner using Gemini (Hebrew text baked in) ───────────
+async function composeBannerWithGemini({ briefTitle, banner, generatedImages, assets }) {
+  if (!gemini) throw new Error("GEMINI_API_KEY is missing — cannot compose banner with Gemini");
+
+  const { width, height } = parseBannerDimensions(banner.size);
+  const imageConfig      = mapBannerSizeToGeminiImageConfig(banner.size);
+  const backgroundRef    = normalizeText(banner.background_image_ref);
+
+  // Try to load the background image that was generated in the image_generator step
+  const backgroundMeta = Array.isArray(generatedImages)
+    ? generatedImages.find(
+        (img) =>
+          normalizeText(img.banner_name).toLowerCase() ===
+          backgroundRef.toLowerCase()
+      )
+    : null;
+
+  let backgroundBase64  = null;
+  let backgroundMimeType = "image/png";
+
+  if (backgroundMeta?.image_file_path) {
+    const buf = await readAssetBuffer(backgroundMeta.image_file_path);
+    if (buf) {
+      backgroundBase64    = buf.toString("base64");
+      backgroundMimeType  = normalizeText(backgroundMeta.mime_type, "image/png");
+    }
+  }
+
+  if (!backgroundBase64 && backgroundMeta?.image_public_url) {
+    const buf = await readAssetBuffer(backgroundMeta.image_public_url);
+    if (buf) {
+      backgroundBase64    = buf.toString("base64");
+      backgroundMimeType  = normalizeText(backgroundMeta.mime_type, "image/png");
+    }
+  }
+
+  const prompt = buildBannerGeminiPrompt({
+    banner,
+    width,
+    height,
+    briefTitle,
+    hasBackground: !!backgroundBase64,
+  });
+
+  // Build multimodal contents — image first if available, then text prompt
+  const parts = [];
+  if (backgroundBase64) {
+    parts.push({
+      inlineData: {
+        mimeType: backgroundMimeType,
+        data: backgroundBase64,
+      },
+    });
+  }
+  parts.push({ text: prompt });
+
+  const contents = [{ role: "user", parts }];
+
+  console.log(
+    `🎨 Composing banner "${banner.name}" (${banner.size}) via Gemini — ` +
+    `background: ${backgroundBase64 ? "loaded ✓" : "none, generating from scratch"}`
+  );
+
+  const response = await gemini.models.generateContent({
+    model: GEMINI_IMAGE_MODEL,
+    contents,
+    config: {
+      responseModalities: ["IMAGE"],
+      imageConfig: {
+        aspectRatio: imageConfig.aspect_ratio,
+        imageSize: imageConfig.image_size,
+      },
+    },
+  });
+
+  const images = extractGeminiInlineImages(response);
+  const firstImage = images[0];
+
+  if (!firstImage?.data) {
+    throw new Error(
+      `Gemini returned no image for banner "${banner.name}" — ` +
+      `finishReason: ${JSON.stringify(response?.candidates?.[0]?.finishReason ?? "unknown")}`
+    );
+  }
+
+  const fileBase = `${slugify(briefTitle)}-${slugify(banner.name)}-${randomUUID()}`;
+
+  const saved = await saveGeneratedImageToPublic({
+    subdir:       "banners",
+    filenameBase: fileBase,
+    base64:       firstImage.data,
+    mimeType:     firstImage.mime_type,
+    targetWidth:  width,
+    targetHeight: height,
+  });
+
+  return {
+    name:                  normalizeText(banner.name),
+    size:                  normalizeText(banner.size),
+    headline:              normalizeText(banner.headline),
+    subheadline:           normalizeText(banner.subheadline),
+    cta:                   normalizeText(banner.cta),
+    disclaimer:            normalizeText(banner.disclaimer),
+    background_image_ref:  normalizeText(banner.background_image_ref),
+    file_name:             path.basename(saved.file_path),
+    file_path:             saved.file_path,
+    relative_path:         saved.relative_path,
+    public_url:            saved.public_url,
+    composition_status:    "composed",
+    generator:             "gemini",
+    generator_model:       GEMINI_IMAGE_MODEL,
+    used_background_image: !!backgroundBase64,
+  };
+}
+
+// ─── UPDATED: runBannerComposer — Gemini first, sharp fallback ────────────────
+async function runBannerComposer(task) {
+  const input        = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+
+  let siblings = [];
   if (sourceTaskId) {
     siblings = await listSiblingTasksForSourceTask(sourceTaskId);
   }
 
   const bannerTask = siblings.find(
     (item) =>
-      normalizeText(item.type).toLowerCase() === "banner_set" &&
+      normalizeText(item.type).toLowerCase()   === "banner_set" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
 
   const imageTask = siblings.find(
     (item) =>
-      normalizeText(item.type).toLowerCase() === "background_images" &&
+      normalizeText(item.type).toLowerCase()   === "background_images" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
 
@@ -2282,28 +2261,21 @@ async function runBannerComposer(task) {
     bannerTask,
     imageTask,
     bannerOutput:
-      bannerTask &&
-      bannerTask.output_data &&
-      typeof bannerTask.output_data === "object"
+      bannerTask?.output_data && typeof bannerTask.output_data === "object"
         ? bannerTask.output_data
         : {},
     imageOutput:
-      imageTask &&
-      imageTask.output_data &&
-      typeof imageTask.output_data === "object"
+      imageTask?.output_data && typeof imageTask.output_data === "object"
         ? imageTask.output_data
         : {},
   };
 
-  const bannerOutput = related.bannerOutput || {};
-  const imageOutput = related.imageOutput || {};
-  const finalBanners = Array.isArray(bannerOutput.final_banners)
-    ? bannerOutput.final_banners
-    : [];
-  const generatedImages = Array.isArray(imageOutput.generated_images)
-    ? imageOutput.generated_images
-    : [];
-  const assets = getAssets(task);
+  const bannerOutput    = related.bannerOutput;
+  const imageOutput     = related.imageOutput;
+  const finalBanners    = Array.isArray(bannerOutput.final_banners)    ? bannerOutput.final_banners    : [];
+  const generatedImages = Array.isArray(imageOutput.generated_images)  ? imageOutput.generated_images  : [];
+  const assets          = getAssets(task);
+  const briefTitle      = getBriefTitle(task);
 
   if (!finalBanners.length) {
     console.error("⚠️ banner_composer: No final_banners found");
@@ -2313,35 +2285,55 @@ async function runBannerComposer(task) {
   const composed_banners = [];
 
   for (const banner of finalBanners) {
+    const bannerName = normalizeText(banner.name);
+
+    // ── Primary path: Gemini full-banner generation with Hebrew text ──
     try {
-      const composed = await composeBannerPng({
-        briefTitle: getBriefTitle(task),
+      const composed = await composeBannerWithGemini({
+        briefTitle,
         banner,
         generatedImages,
         assets,
       });
-
       composed_banners.push(composed);
-    } catch (e) {
+      console.log(`✅ Banner composed by Gemini: ${bannerName}`);
+      continue;
+    } catch (geminiErr) {
       console.error(
-        `⚠️ banner_composer failed for ${normalizeText(banner.name)}:`,
-        e?.message || e
+        `⚠️ Gemini banner composition failed for "${bannerName}", trying sharp fallback:`,
+        geminiErr?.message || geminiErr
       );
+    }
 
+    // ── Fallback path: original sharp + SVG overlay ──
+    try {
+      const composed = await composeBannerPng({
+        briefTitle,
+        banner,
+        generatedImages,
+        assets,
+      });
+      composed_banners.push({ ...composed, generator: "sharp_svg_fallback" });
+      console.log(`⚠️ Banner composed via sharp fallback: ${bannerName}`);
+    } catch (sharpErr) {
+      console.error(
+        `❌ Sharp fallback also failed for "${bannerName}":`,
+        sharpErr?.message || sharpErr
+      );
       composed_banners.push({
-        name: normalizeText(banner.name),
-        size: normalizeText(banner.size),
-        headline: normalizeText(banner.headline),
-        subheadline: normalizeText(banner.subheadline),
-        cta: normalizeText(banner.cta),
-        disclaimer: normalizeText(banner.disclaimer),
+        name:                 bannerName,
+        size:                 normalizeText(banner.size),
+        headline:             normalizeText(banner.headline),
+        subheadline:          normalizeText(banner.subheadline),
+        cta:                  normalizeText(banner.cta),
+        disclaimer:           normalizeText(banner.disclaimer),
         background_image_ref: normalizeText(banner.background_image_ref),
-        file_name: "",
-        file_path: "",
-        relative_path: "",
-        public_url: "",
-        composition_status: "failed",
-        error: String(e?.message || e),
+        file_name:            "",
+        file_path:            "",
+        relative_path:        "",
+        public_url:           "",
+        composition_status:   "failed",
+        error:                String(sharpErr?.message || sharpErr),
       });
     }
   }
@@ -2351,19 +2343,19 @@ async function runBannerComposer(task) {
   ).length;
 
   return {
-    ok: true,
+    ok:           true,
     ai_generated: composedCount > 0,
     note:
       composedCount === composed_banners.length
-        ? "banner_composer rendered png banners"
+        ? "banner_composer rendered all banners via Gemini"
         : composedCount > 0
-        ? "banner_composer partial success"
-        : "banner_composer no banners composed",
-    brief_title: getBriefTitle(task),
-    planner_brief: getTaskInput(task).planner_brief ?? null,
+        ? `banner_composer partial success (${composedCount}/${composed_banners.length})`
+        : "banner_composer: no banners composed",
+    brief_title:    briefTitle,
+    planner_brief:  getTaskInput(task).planner_brief ?? null,
     related_sources: {
       banner_task_found: Boolean(related.bannerTask),
-      image_task_found: Boolean(related.imageTask),
+      image_task_found:  Boolean(related.imageTask),
     },
     composed_banners,
   };
@@ -2372,7 +2364,6 @@ async function runBannerComposer(task) {
 function buildNormalizedBrief(task) {
   const input = getTaskInput(task);
   const assets = getAssets(task);
-
   return {
     title: getBriefTitle(task),
     context: getAdditionalContext(task),
@@ -2443,7 +2434,6 @@ function buildPlannerChildren(task, normalizedBrief) {
     planner_brief: normalizedBrief,
     assets: normalizedBrief.assets,
   };
-
   return [
     {
       title: `Write ad copy for: ${baseTitle}`,
@@ -2575,7 +2565,6 @@ async function listExistingChildTasks(sourceTaskId) {
     const allTasks = await pb.collection("tasks").getFullList({
       sort: "-created",
     });
-
     return allTasks.filter(
       (item) => item?.input_data?.source_task_id === sourceTaskId
     );
@@ -2586,21 +2575,17 @@ async function runPlanner(task) {
   const normalizedBrief = buildNormalizedBrief(task);
   const plannedChildren = buildPlannerChildren(task, normalizedBrief);
   const existingChildren = await listExistingChildTasks(task.id);
-
   const existingTypes = new Set(
     existingChildren
       .map((child) => normalizeText(child.type).toLowerCase())
       .filter(Boolean)
   );
-
   const createdChildren = [];
-
   for (const child of plannedChildren) {
     const childType = normalizeText(child.type).toLowerCase();
     if (existingTypes.has(childType)) {
       continue;
     }
-
     const created = await pb.collection("tasks").create(child);
     createdChildren.push({
       id: created.id,
@@ -2609,7 +2594,6 @@ async function runPlanner(task) {
       assigned_agent: created.assigned_agent,
       status: created.status,
     });
-
     await logActivity({
       event: "planner_child_created",
       agent: "planner",
@@ -2622,7 +2606,6 @@ async function runPlanner(task) {
       },
     });
   }
-
   return {
     ok: true,
     note: "planner created campaign workflow",
@@ -2649,12 +2632,10 @@ async function runCopywriter(task) {
   const deliverable = getDeliverable(task);
   const type = normalizeText(task.type, "").toLowerCase();
   const mode = getMode(task);
-
   try {
     if (deliverable === "article" || type === "article") {
       return await generateArticleWithAI(task);
     }
-
     if (
       deliverable === "ads" ||
       deliverable === "ad_copy" ||
@@ -2665,14 +2646,12 @@ async function runCopywriter(task) {
   } catch (e) {
     console.error("⚠️ AI copywriter failed, using fallback:", e?.message || e);
   }
-
   if (deliverable === "article" || type === "article") {
     if (mode === "revise") {
       return buildArticleRevisionOutput(task);
     }
     return buildArticleCreateOutput(task);
   }
-
   if (
     deliverable === "ads" ||
     deliverable === "ad_copy" ||
@@ -2683,7 +2662,6 @@ async function runCopywriter(task) {
     }
     return buildAdsCreateOutput(task);
   }
-
   return {
     ok: true,
     note: "copywriter generic output",
@@ -2700,11 +2678,9 @@ const agents = {
   planner: async (task) => {
     return await runPlanner(task);
   },
-
   copywriter: async (task) => {
     return await runCopywriter(task);
   },
-
   visual_director: async (task) => {
     try {
       return await generateVisualDirectionWithAI(task);
@@ -2746,19 +2722,15 @@ const agents = {
       };
     }
   },
-
   image_generator: async (task) => {
     return await runImageGenerator(task);
   },
-
   banner_renderer: async (task) => {
     return await runBannerRenderer(task);
   },
-
   banner_composer: async (task) => {
     return await runBannerComposer(task);
   },
-
   landing_page_builder: async (task) => {
     return {
       ok: true,
@@ -2787,7 +2759,6 @@ const agents = {
       },
     };
   },
-
   video_producer: async (task) => {
     return {
       ok: true,
@@ -2798,7 +2769,6 @@ const agents = {
       script: "תסריט קצר לדוגמה",
     };
   },
-
   qa: async (task) => {
     return {
       ok: true,
@@ -2813,15 +2783,11 @@ const agents = {
 
 export async function runTaskById(taskId) {
   const task = await pb.collection("tasks").getOne(taskId);
-
   const agentName = task.assigned_agent;
   if (!agentName) throw new Error('Task missing "assigned_agent"');
-
   const handler = agents[agentName];
   if (!handler) throw new Error(`No handler for assigned_agent="${agentName}"`);
-
   await pb.collection("tasks").update(task.id, { status: "in_progress" });
-
   await logActivity({
     event: "task_started",
     agent: agentName,
@@ -2833,15 +2799,12 @@ export async function runTaskById(taskId) {
       priority: task.priority,
     },
   });
-
   try {
     const output = await handler(task);
-
     await pb.collection("tasks").update(task.id, {
       status: "done",
       output_data: output,
     });
-
     await logActivity({
       event: "task_done",
       agent: agentName,
@@ -2853,14 +2816,12 @@ export async function runTaskById(taskId) {
         priority: task.priority,
       },
     });
-
     return output;
   } catch (err) {
     await pb.collection("tasks").update(task.id, {
       status: "failed",
       output_data: { error: String(err?.message || err) },
     });
-
     await logActivity({
       event: "task_failed",
       agent: agentName,
@@ -2872,7 +2833,6 @@ export async function runTaskById(taskId) {
         title: task.title,
       },
     });
-
     throw err;
   }
 }
@@ -2903,14 +2863,11 @@ function sendBuffer(
 
 async function readJsonBody(req) {
   const chunks = [];
-
   for await (const chunk of req) {
     chunks.push(chunk);
   }
-
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) return {};
-
   try {
     return JSON.parse(raw);
   } catch {
@@ -2923,23 +2880,19 @@ async function handleFileRequest(url, res) {
     url.pathname.replace(/^\/files\//, "")
   );
   const absPath = path.resolve(PUBLIC_DIR, relativePath);
-
   if (!absPath.startsWith(PUBLIC_DIR)) {
     sendJson(res, 403, { ok: false, error: "Forbidden" });
     return;
   }
-
   try {
     const fileBuffer = await fs.readFile(absPath);
     const ext = path.extname(absPath).toLowerCase();
-
     let contentType = "application/octet-stream";
     if (ext === ".png") contentType = "image/png";
     else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
     else if (ext === ".webp") contentType = "image/webp";
     else if (ext === ".svg") contentType = "image/svg+xml";
     else if (ext === ".json") contentType = "application/json";
-
     sendBuffer(res, 200, fileBuffer, contentType);
   } catch {
     sendJson(res, 404, { ok: false, error: "File not found" });
@@ -2948,7 +2901,6 @@ async function handleFileRequest(url, res) {
 
 async function handleRequest(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
@@ -2958,12 +2910,10 @@ async function handleRequest(req, res) {
     res.end();
     return;
   }
-
   if (req.method === "GET" && url.pathname.startsWith("/files/")) {
     await handleFileRequest(url, res);
     return;
   }
-
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
       ok: true,
@@ -2979,12 +2929,10 @@ async function handleRequest(req, res) {
     });
     return;
   }
-
   if (req.method === "POST" && url.pathname === "/run-task") {
     try {
       const body = await readJsonBody(req);
       const taskId = normalizeText(body.taskId);
-
       if (!taskId) {
         sendJson(res, 400, {
           ok: false,
@@ -2992,9 +2940,7 @@ async function handleRequest(req, res) {
         });
         return;
       }
-
       const output = await runTaskById(taskId);
-
       sendJson(res, 200, {
         ok: true,
         taskId,
@@ -3010,7 +2956,6 @@ async function handleRequest(req, res) {
       return;
     }
   }
-
   sendJson(res, 404, {
     ok: false,
     error: "Not found",
@@ -3022,30 +2967,25 @@ async function main() {
   await ensureDir(GENERATED_IMAGES_DIR);
   await ensureDir(BANNERS_DIR);
   await auth();
-
   if (openai) {
     console.log("🤖 OpenAI is enabled for copywriter");
   } else {
     console.log("⚠️ OpenAI is not configured. Copywriter will use fallback outputs.");
   }
-
   if (gemini) {
     console.log(`🟣 Gemini is configured and ready (${GEMINI_IMAGE_MODEL})`);
   } else {
     console.log("⚠️ Gemini is not configured yet.");
   }
-
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((e) => {
       console.error("❌ Unhandled request error:", e?.message || e);
       sendJson(res, 500, { ok: false, error: "Internal server error" });
     });
   });
-
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`🌐 HTTP server listening on port ${PORT}`);
   });
-
   setInterval(async () => {
     try {
       await pb.collection("_superusers").authRefresh();
@@ -3060,7 +3000,6 @@ async function main() {
       }
     }
   }, 15000);
-
   console.log("⏳ Runner is alive. Waiting for manual triggers only.");
 }
 
