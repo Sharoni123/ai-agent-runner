@@ -8,15 +8,15 @@ import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
 const fontRegular = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-Regular.ttf")
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-Regular.ttf")
 );
 
 const fontBold = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-Bold.ttf")
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-Bold.ttf")
 );
 
 const fontExtraBold = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-ExtraBold.ttf")
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-ExtraBold.ttf")
 );
 
 const fontRegularBase64 = fontRegular.toString("base64")
