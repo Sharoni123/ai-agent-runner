@@ -24,6 +24,8 @@ const PUBLIC_ASSET_BASE_URL = (
   ""
 ).trim().replace(/\/+$/, "");
 
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
 if (!PB_URL || !ADMIN_EMAIL || !ADMIN_PASS) {
   console.error(
     "❌ Missing env vars: POCKETBASE_URL / POCKETBASE_ADMIN_EMAIL / POCKETBASE_ADMIN_PASSWORD"
@@ -442,17 +444,109 @@ function mapBannerSizeToGeminiImageConfig(size) {
 
 function extractGeminiInlineImages(response) {
   const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
-  const parts = candidates[0]?.content?.parts;
 
-  if (!Array.isArray(parts)) return [];
+  const parts = candidates.flatMap((candidate) => {
+    const contentParts = candidate?.content?.parts;
+    return Array.isArray(contentParts) ? contentParts : [];
+  });
 
   return parts
-    .filter((part) => part?.inlineData?.data)
-    .map((part) => ({
-      mime_type: normalizeText(part.inlineData?.mimeType, "image/png"),
-      data: normalizeText(part.inlineData?.data),
-    }))
-    .filter((item) => item.data);
+    .map((part) => {
+      const inline = part?.inlineData || part?.inline_data;
+      if (!inline?.data) return null;
+
+      return {
+        mime_type: normalizeText(
+          inline.mimeType || inline.mime_type,
+          "image/png"
+        ),
+        data: normalizeText(inline.data),
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 180000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    const text = await res.text();
+    let json = null;
+
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+
+    if (!res.ok) {
+      throw new Error(
+        `Gemini HTTP ${res.status}: ${json?.error?.message || text || "Unknown error"}`
+      );
+    }
+
+    return json;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Gemini request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generateGeminiImage(plan) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is missing");
+  }
+
+  const url =
+    `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_IMAGE_MODEL)}:generateContent` +
+    `?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+
+  const body = {
+    contents: [
+      {
+        parts: [{ text: plan.prompt }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ["IMAGE"],
+      imageConfig: {
+        aspectRatio: plan.aspect_ratio,
+      },
+    },
+  };
+
+  const response = await fetchJsonWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    180000
+  );
+
+  const images = extractGeminiInlineImages(response);
+  const firstImage = images[0];
+
+  if (!firstImage?.data) {
+    throw new Error(
+      `Gemini image generation returned no inline image for ${plan.banner_name}`
+    );
+  }
+
+  return firstImage;
 }
 
 function parseBannerDimensions(size) {
@@ -561,7 +655,7 @@ async function readAssetBuffer(urlOrPath) {
   if (!value) return null;
 
   if (value.startsWith("http://") || value.startsWith("https://")) {
-    return await readUrlAsBuffer(value);
+    return await readUrlAsBuffer(url);
   }
 
   if (value.startsWith("/files/")) {
@@ -1507,7 +1601,7 @@ function buildImageGeneratorFallback(task, related = {}) {
 }
 
 async function generateImagesWithAI(task, related = {}) {
-  if (!gemini) {
+  if (!gemini && !process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is missing");
   }
 
@@ -1579,26 +1673,9 @@ async function generateImagesWithAI(task, related = {}) {
   const generated_images = [];
 
   for (const plan of plans) {
-    const response = await gemini.models.generateContent({
-      model: GEMINI_IMAGE_MODEL,
-      contents: plan.prompt,
-      config: {
-        responseModalities: ["IMAGE"],
-        imageConfig: {
-          aspectRatio: plan.aspect_ratio,
-          imageSize: plan.image_size,
-        },
-      },
-    });
+    console.log(`🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`);
 
-    const images = extractGeminiInlineImages(response);
-    const firstImage = images[0];
-
-    if (!firstImage?.data) {
-      throw new Error(
-        `Gemini image generation returned no inline image for ${plan.banner_name}`
-      );
-    }
+    const firstImage = await generateGeminiImage(plan);
 
     const fileBase = `${slugify(briefTitle)}-${slugify(
       plan.banner_name
