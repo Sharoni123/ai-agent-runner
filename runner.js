@@ -42,7 +42,7 @@ const gemini = process.env.GEMINI_API_KEY
   : null;
 
 const GEMINI_IMAGE_MODEL =
-  process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
+  process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
 
 let sharpModulePromise = null;
 
@@ -52,7 +52,9 @@ function getSharp() {
       .then((mod) => mod.default || mod)
       .catch((err) => {
         throw new Error(
-          `sharp is required for banner_composer. Install it in the runner service. Original error: ${err?.message || err}`
+          `sharp is required for banner_composer. Install it in the runner service. Original error: ${
+            err?.message || err
+          }`
         );
       });
   }
@@ -403,6 +405,8 @@ function mapBannerSizeToGeminiImageConfig(size) {
     return {
       aspect_ratio: "1:1",
       image_size: "2k",
+      output_width: 1080,
+      output_height: 1080,
     };
   }
 
@@ -410,32 +414,43 @@ function mapBannerSizeToGeminiImageConfig(size) {
     return {
       aspect_ratio: "9:16",
       image_size: "2k",
+      output_width: 1080,
+      output_height: 1920,
     };
   }
 
-  if (normalized === "1980x1020" || normalized === "1200x628") {
+  if (
+    normalized === "1980x1020" ||
+    normalized === "1200x628" ||
+    normalized === "1200x630"
+  ) {
     return {
       aspect_ratio: "16:9",
       image_size: "2k",
+      output_width: 1200,
+      output_height: 628,
     };
   }
 
   return {
     aspect_ratio: "1:1",
     image_size: "2k",
+    output_width: 1080,
+    output_height: 1080,
   };
 }
 
-function extractGeminiImagesFromInteraction(interaction) {
-  if (!interaction || !Array.isArray(interaction.outputs)) {
-    return [];
-  }
+function extractGeminiInlineImages(response) {
+  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
+  const parts = candidates[0]?.content?.parts;
 
-  return interaction.outputs
-    .filter((output) => output?.type === "image" && output?.data)
-    .map((output) => ({
-      mime_type: normalizeText(output.mime_type, "image/png"),
-      data: normalizeText(output.data),
+  if (!Array.isArray(parts)) return [];
+
+  return parts
+    .filter((part) => part?.inlineData?.data)
+    .map((part) => ({
+      mime_type: normalizeText(part.inlineData?.mimeType, "image/png"),
+      data: normalizeText(part.inlineData?.data),
     }))
     .filter((item) => item.data);
 }
@@ -491,6 +506,39 @@ async function saveBase64PngToPublic(subdir, filename, base64) {
   return await saveBufferToPublic(subdir, filename, buffer);
 }
 
+async function saveGeneratedImageToPublic({
+  subdir,
+  filenameBase,
+  base64,
+  mimeType = "image/png",
+  targetWidth,
+  targetHeight,
+}) {
+  const sharp = await getSharp();
+
+  const inputBuffer = Buffer.from(base64, "base64");
+
+  let ext = "png";
+  if (mimeType === "image/jpeg") ext = "jpg";
+  else if (mimeType === "image/webp") ext = "webp";
+
+  const finalFilename = `${filenameBase}.${ext}`;
+
+  let outputBuffer = inputBuffer;
+
+  if (targetWidth && targetHeight) {
+    outputBuffer = await sharp(inputBuffer)
+      .resize(targetWidth, targetHeight, {
+        fit: "cover",
+        position: "centre",
+      })
+      .toFormat(ext === "jpg" ? "jpeg" : ext)
+      .toBuffer();
+  }
+
+  return await saveBufferToPublic(subdir, finalFilename, outputBuffer);
+}
+
 async function readLocalFileSafe(filePath) {
   try {
     return await fs.readFile(filePath);
@@ -522,7 +570,9 @@ async function readAssetBuffer(urlOrPath) {
   }
 
   if (value.startsWith("/")) {
-    return await readLocalFileSafe(path.join(PUBLIC_DIR, value.replace(/^\/+/, "")));
+    return await readLocalFileSafe(
+      path.join(PUBLIC_DIR, value.replace(/^\/+/, ""))
+    );
   }
 
   if (path.isAbsolute(value)) {
@@ -623,7 +673,9 @@ function buildBannerOverlaySvg({
   const headlineStartY = m.topY;
   const headlineLineGap = Math.round(m.headlineSize * 1.22);
   const subStartY =
-    headlineStartY + headlineLines.length * headlineLineGap + Math.round(height * 0.03);
+    headlineStartY +
+    headlineLines.length * headlineLineGap +
+    Math.round(height * 0.03);
   const subLineGap = Math.round(m.subheadlineSize * 1.5);
 
   const buttonY = height - Math.round(height * 0.19);
@@ -633,20 +685,32 @@ function buildBannerOverlaySvg({
   const headlineText = headlineLines
     .map((line, index) => {
       const y = headlineStartY + index * headlineLineGap;
-      return `<text x="${width - overlayX}" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.headlineSize}" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>`;
+      return `<text x="${
+        width - overlayX
+      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
+        m.headlineSize
+      }" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>`;
     })
     .join("");
 
   const subText = subheadlineLines
     .map((line, index) => {
       const y = subStartY + index * subLineGap;
-      return `<text x="${width - overlayX}" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.subheadlineSize}" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>`;
+      return `<text x="${
+        width - overlayX
+      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
+        m.subheadlineSize
+      }" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>`;
     })
     .join("");
 
   const logoRect =
     logoInsetWidth > 0
-      ? `<rect x="${overlayX}" y="${Math.round(height * 0.045)}" rx="14" ry="14" width="${logoInsetWidth}" height="${Math.round(height * 0.08)}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />`
+      ? `<rect x="${overlayX}" y="${Math.round(
+          height * 0.045
+        )}" rx="14" ry="14" width="${logoInsetWidth}" height="${Math.round(
+          height * 0.08
+        )}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />`
       : "";
 
   return `
@@ -670,8 +734,16 @@ function buildBannerOverlaySvg({
   ${headlineText}
   ${subText}
 
-  <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(m.buttonHeight / 2)}" ry="${Math.round(m.buttonHeight / 2)}" width="${m.buttonWidth}" height="${m.buttonHeight}" fill="#20C997"/>
-  <text x="${buttonX + m.buttonWidth / 2}" y="${buttonY + m.buttonHeight / 2 + m.ctaSize * 0.35}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${m.ctaSize}" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
+  <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(
+    m.buttonHeight / 2
+  )}" ry="${Math.round(m.buttonHeight / 2)}" width="${
+    m.buttonWidth
+  }" height="${m.buttonHeight}" fill="#20C997"/>
+  <text x="${buttonX + m.buttonWidth / 2}" y="${
+    buttonY + m.buttonHeight / 2 + m.ctaSize * 0.35
+  }" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${
+    m.ctaSize
+  }" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
 
   <text x="${width - overlayX}" y="${disclaimerY}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.disclaimerSize}" font-weight="400" fill="rgba(255,255,255,0.82)">${escapeXml(disclaimer)}</text>
 </svg>
@@ -1238,7 +1310,9 @@ async function generateAdsWithAI(task) {
   ].join(" ");
 
   const userPrompt = [
-    `סוג משימה: ${mode === "revise" ? "עריכת מודעות קיימות" : "יצירת מודעות חדשות"}`,
+    `סוג משימה: ${
+      mode === "revise" ? "עריכת מודעות קיימות" : "יצירת מודעות חדשות"
+    }`,
     `נושא: ${briefTitle}`,
     `טון: ${tone}`,
     `קהל יעד: ${audience}`,
@@ -1441,11 +1515,13 @@ async function generateImagesWithAI(task, related = {}) {
   const assets = getAssets(task);
   const bannerOutput = related.bannerOutput || {};
   const visualOutput = related.visualOutput || {};
+
   const bannerPlans = Array.isArray(bannerOutput.banners)
     ? bannerOutput.banners
     : Array.isArray(bannerOutput.final_banners)
     ? bannerOutput.final_banners
     : [];
+
   const visualPrompts = pickArray(visualOutput.image_prompts);
 
   const plans =
@@ -1459,15 +1535,17 @@ async function generateImagesWithAI(task, related = {}) {
             requested_size: requestedSize,
             image_size: imageConfig.image_size,
             aspect_ratio: imageConfig.aspect_ratio,
+            output_width: imageConfig.output_width,
+            output_height: imageConfig.output_height,
             prompt: [
               normalizeText(
                 banner.image_prompt,
                 `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
               ),
-              "Create a premium commercial real-estate background visual.",
-              "No text, no letters, no numbers, no Hebrew, no English, no signage, no watermark, no logo in the image.",
-              "The image must be clean and suitable as a background for a Hebrew marketing banner.",
-              "High-end composition, realistic lighting, professional advertising style.",
+              "Create a premium commercial real-estate advertising image.",
+              "High-end, photorealistic, polished marketing composition.",
+              "No text, no letters, no numbers, no watermark, no logo, no signage in the generated image.",
+              "The result must work as a background image for a Hebrew banner ad.",
             ].join(" "),
           };
         })
@@ -1479,12 +1557,17 @@ async function generateImagesWithAI(task, related = {}) {
             requested_size: "1080x1080",
             image_size: imageConfig.image_size,
             aspect_ratio: imageConfig.aspect_ratio,
+            output_width: imageConfig.output_width,
+            output_height: imageConfig.output_height,
             prompt: [
-              normalizeText(prompt),
-              "Create a premium commercial real-estate background visual.",
-              "No text, no letters, no numbers, no Hebrew, no English, no signage, no watermark, no logo in the image.",
-              "The image must be clean and suitable as a background for a Hebrew marketing banner.",
-              "High-end composition, realistic lighting, professional advertising style.",
+              normalizeText(
+                prompt,
+                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+              ),
+              "Create a premium commercial real-estate advertising image.",
+              "High-end, photorealistic, polished marketing composition.",
+              "No text, no letters, no numbers, no watermark, no logo, no signage in the generated image.",
+              "The result must work as a background image for a Hebrew banner ad.",
             ].join(" "),
           };
         });
@@ -1496,44 +1579,47 @@ async function generateImagesWithAI(task, related = {}) {
   const generated_images = [];
 
   for (const plan of plans) {
-    const interaction = await gemini.interactions.create({
+    const response = await gemini.models.generateContent({
       model: GEMINI_IMAGE_MODEL,
-      input: plan.prompt,
-      response_modalities: ["IMAGE"],
-      generation_config: {
-        image_config: {
-          aspect_ratio: plan.aspect_ratio,
-          image_size: plan.image_size,
+      contents: plan.prompt,
+      config: {
+        responseModalities: ["IMAGE"],
+        imageConfig: {
+          aspectRatio: plan.aspect_ratio,
+          imageSize: plan.image_size,
         },
       },
     });
 
-    const images = extractGeminiImagesFromInteraction(interaction);
+    const images = extractGeminiInlineImages(response);
     const firstImage = images[0];
 
     if (!firstImage?.data) {
-      throw new Error(`Gemini image generation failed for ${plan.banner_name}`);
+      throw new Error(
+        `Gemini image generation returned no inline image for ${plan.banner_name}`
+      );
     }
 
-    const ext =
-      firstImage.mime_type === "image/jpeg"
-        ? "jpg"
-        : firstImage.mime_type === "image/webp"
-        ? "webp"
-        : "png";
+    const fileBase = `${slugify(briefTitle)}-${slugify(
+      plan.banner_name
+    )}-${randomUUID()}`;
 
-    const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}.${ext}`;
-    const saved = await saveBase64PngToPublic(
-      "generated-images",
-      fileBase,
-      firstImage.data
-    );
+    const saved = await saveGeneratedImageToPublic({
+      subdir: "generated-images",
+      filenameBase: fileBase,
+      base64: firstImage.data,
+      mimeType: firstImage.mime_type,
+      targetWidth: plan.output_width,
+      targetHeight: plan.output_height,
+    });
 
     generated_images.push({
       banner_name: plan.banner_name,
       requested_size: plan.requested_size,
       image_size: plan.image_size,
       aspect_ratio: plan.aspect_ratio,
+      output_width: plan.output_width,
+      output_height: plan.output_height,
       prompt: plan.prompt,
       mime_type: firstImage.mime_type,
       generation_status: "generated",
@@ -1586,11 +1672,15 @@ async function runImageGenerator(task) {
     bannerTask,
     visualTask,
     bannerOutput:
-      bannerTask && bannerTask.output_data && typeof bannerTask.output_data === "object"
+      bannerTask &&
+      bannerTask.output_data &&
+      typeof bannerTask.output_data === "object"
         ? bannerTask.output_data
         : {},
     visualOutput:
-      visualTask && visualTask.output_data && typeof visualTask.output_data === "object"
+      visualTask &&
+      visualTask.output_data &&
+      typeof visualTask.output_data === "object"
         ? visualTask.output_data
         : {},
   };
@@ -1598,7 +1688,10 @@ async function runImageGenerator(task) {
   try {
     return await generateImagesWithAI(task, related);
   } catch (e) {
-    console.error("⚠️ AI image_generator failed, using fallback:", e?.message || e);
+    console.error(
+      "⚠️ AI image_generator failed, using fallback:",
+      e?.message || e
+    );
     return buildImageGeneratorFallback(task, related);
   }
 }
@@ -1855,7 +1948,9 @@ async function runBannerRenderer(task) {
     adTask,
     imageTask,
     visualOutput:
-      visualTask && visualTask.output_data && typeof visualTask.output_data === "object"
+      visualTask &&
+      visualTask.output_data &&
+      typeof visualTask.output_data === "object"
         ? visualTask.output_data
         : {},
     adOutput:
@@ -1863,7 +1958,9 @@ async function runBannerRenderer(task) {
         ? adTask.output_data
         : {},
     imageOutput:
-      imageTask && imageTask.output_data && typeof imageTask.output_data === "object"
+      imageTask &&
+      imageTask.output_data &&
+      typeof imageTask.output_data === "object"
         ? imageTask.output_data
         : {},
   };
@@ -1871,7 +1968,10 @@ async function runBannerRenderer(task) {
   try {
     return await generateBannerSetWithAI(task, related);
   } catch (e) {
-    console.error("⚠️ AI banner_renderer failed, using fallback:", e?.message || e);
+    console.error(
+      "⚠️ AI banner_renderer failed, using fallback:",
+      e?.message || e
+    );
     return buildBannerRendererFallback(task, related);
   }
 }
@@ -1961,7 +2061,8 @@ async function composeBannerPng({
     subheadline: banner.subheadline,
     cta: banner.cta,
     disclaimer: banner.disclaimer,
-    logoInsetWidth: banner.logo_url || assets.logos[0] ? Math.round(width * 0.22) : 0,
+    logoInsetWidth:
+      banner.logo_url || assets.logos[0] ? Math.round(width * 0.22) : 0,
   });
 
   composites.push({
@@ -1998,9 +2099,14 @@ async function composeBannerPng({
     }
   }
 
-  const outputBuffer = await backgroundBase.composite(composites).png().toBuffer();
+  const outputBuffer = await backgroundBase
+    .composite(composites)
+    .png()
+    .toBuffer();
 
-  const fileName = `${slugify(briefTitle)}-${slugify(banner.name)}-${randomUUID()}.png`;
+  const fileName = `${slugify(briefTitle)}-${slugify(
+    banner.name
+  )}-${randomUUID()}.png`;
   const saved = await saveBufferToPublic("banners", fileName, outputBuffer);
 
   return {
@@ -2044,11 +2150,15 @@ async function runBannerComposer(task) {
     bannerTask,
     imageTask,
     bannerOutput:
-      bannerTask && bannerTask.output_data && typeof bannerTask.output_data === "object"
+      bannerTask &&
+      bannerTask.output_data &&
+      typeof bannerTask.output_data === "object"
         ? bannerTask.output_data
         : {},
     imageOutput:
-      imageTask && imageTask.output_data && typeof imageTask.output_data === "object"
+      imageTask &&
+      imageTask.output_data &&
+      typeof imageTask.output_data === "object"
         ? imageTask.output_data
         : {},
   };
@@ -2383,7 +2493,11 @@ async function runCopywriter(task) {
       return await generateArticleWithAI(task);
     }
 
-    if (deliverable === "ads" || deliverable === "ad_copy" || type === "ad_copy") {
+    if (
+      deliverable === "ads" ||
+      deliverable === "ad_copy" ||
+      type === "ad_copy"
+    ) {
       return await generateAdsWithAI(task);
     }
   } catch (e) {
@@ -2397,7 +2511,11 @@ async function runCopywriter(task) {
     return buildArticleCreateOutput(task);
   }
 
-  if (deliverable === "ads" || deliverable === "ad_copy" || type === "ad_copy") {
+  if (
+    deliverable === "ads" ||
+    deliverable === "ad_copy" ||
+    type === "ad_copy"
+  ) {
     if (mode === "revise") {
       return buildAdsRevisionOutput(task);
     }
@@ -2410,7 +2528,9 @@ async function runCopywriter(task) {
     mode,
     deliverable,
     summary: `Generated copy output for ${getBriefTitle(task)}.`,
-    hebrew_copy: `נוצר טקסט בסיס עבור ${getBriefTitle(task)}. אפשר להרחיב אותו, לחדד את הטון, או לשלוח סבב תיקונים נוסף לפי צורך.`,
+    hebrew_copy: `נוצר טקסט בסיס עבור ${getBriefTitle(
+      task
+    )}. אפשר להרחיב אותו, לחדד את הטון, או לשלוח סבב תיקונים נוסף לפי צורך.`,
   };
 }
 
@@ -2427,7 +2547,10 @@ const agents = {
     try {
       return await generateVisualDirectionWithAI(task);
     } catch (e) {
-      console.error("⚠️ AI visual_director failed, using fallback:", e?.message || e);
+      console.error(
+        "⚠️ AI visual_director failed, using fallback:",
+        e?.message || e
+      );
       return {
         ok: true,
         note: "visual_director fallback",
@@ -2446,8 +2569,12 @@ const agents = {
         video_brief:
           "סרטון קצר עם פתיחה חזקה, הדגשת מחיר/מיקום/יתרון מרכזי וסיום עם קריאה ברורה לפעולה.",
         image_prompts: [
-          `צור תמונת נדל"ן שיווקית עבור ${getBriefTitle(task)} בסגנון יוקרתי, מודרני, נקי, עם תאורה טבעית, קומפוזיציה חזקה ואווירת פרימיום`,
-          `צור ויזואל שיווקי עבור ${getBriefTitle(task)} שמתאים לבאנר נדל"ן, עם דגש על יוקרה, אמינות, השקעה חכמה ונראות מסחרית גבוהה`,
+          `צור תמונת נדל"ן שיווקית עבור ${getBriefTitle(
+            task
+          )} בסגנון יוקרתי, מודרני, נקי, עם תאורה טבעית, קומפוזיציה חזקה ואווירת פרימיום`,
+          `צור ויזואל שיווקי עבור ${getBriefTitle(
+            task
+          )} שמתאים לבאנר נדל"ן, עם דגש על יוקרה, אמינות, השקעה חכמה ונראות מסחרית גבוהה`,
         ],
         banner_headlines: [
           `${getBriefTitle(task)}`,
@@ -2598,7 +2725,12 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function sendBuffer(res, statusCode, buffer, contentType = "application/octet-stream") {
+function sendBuffer(
+  res,
+  statusCode,
+  buffer,
+  contentType = "application/octet-stream"
+) {
   res.writeHead(statusCode, {
     "Content-Type": contentType,
     "Access-Control-Allow-Origin": "*",
@@ -2625,7 +2757,9 @@ async function readJsonBody(req) {
 }
 
 async function handleFileRequest(url, res) {
-  const relativePath = decodeURIComponent(url.pathname.replace(/^\/files\//, ""));
+  const relativePath = decodeURIComponent(
+    url.pathname.replace(/^\/files\//, "")
+  );
   const absPath = path.resolve(PUBLIC_DIR, relativePath);
 
   if (!absPath.startsWith(PUBLIC_DIR)) {
