@@ -1,11 +1,27 @@
 import http from "node:http";
 import fs from "node:fs/promises";
+import fssync from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import PocketBase from "pocketbase";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
+const fontRegular = fssync.readFileSync(
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-Regular.ttf")
+);
+
+const fontBold = fssync.readFileSync(
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-Bold.ttf")
+);
+
+const fontExtraBold = fssync.readFileSync(
+  path.join(process.cwd(), "public/fonts/NotoSansHebrew-ExtraBold.ttf")
+);
+
+const fontRegularBase64 = fontRegular.toString("base64")
+const fontBoldBase64 = fontBold.toString("base64")
+const fontExtraBoldBase64 = fontExtraBold.toString("base64")
 const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
@@ -866,9 +882,9 @@ function buildBannerOverlaySvg({
         x="${headlineX}"
         y="${y}"
         text-anchor="end"
-        font-family="Arial, Helvetica, sans-serif"
+        font-family="BannerHebrew"
         font-size="${headlineSize}"
-        font-weight="800"
+        font-weight="900"
         fill="url(#goldText)"
         filter="url(#headlineGlow)"
         letter-spacing="0.2"
@@ -884,7 +900,7 @@ function buildBannerOverlaySvg({
         x="${headlineX}"
         y="${y}"
         text-anchor="end"
-        font-family="Arial, Helvetica, sans-serif"
+        font-family="BannerHebrew"
         font-size="${subheadlineSize}"
         font-weight="500"
         fill="#F8FAFC"
@@ -919,6 +935,32 @@ function buildBannerOverlaySvg({
 
   return `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @font-face {
+      font-family: 'BannerHebrew';
+      src: url("data:font/ttf;base64,${fontRegularBase64}") format("truetype");
+      font-weight: 400;
+    }
+
+    @font-face {
+      font-family: 'BannerHebrew';
+      src: url("data:font/ttf;base64,${fontBoldBase64}") format("truetype");
+      font-weight: 700;
+    }
+
+    @font-face {
+      font-family: 'BannerHebrew';
+      src: url("data:font/ttf;base64,${fontExtraBoldBase64}") format("truetype");
+      font-weight: 900;
+    }
+
+    text {
+      font-family: 'BannerHebrew';
+      direction: rtl;
+      unicode-bidi: plaintext;
+    }
+  </style>
+
   <defs>
     <linearGradient id="darkFade" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="rgba(0,0,0,0.10)"/>
@@ -1037,9 +1079,9 @@ function buildBannerOverlaySvg({
     x="${badgeX + badgeW / 2}"
     y="${badgeY + badgeH / 2 + Math.round(badgeH * 0.16)}"
     text-anchor="middle"
-    font-family="Arial, Helvetica, sans-serif"
+    font-family="BannerHebrew"
     font-size="${Math.round(badgeH * 0.36)}"
-    font-weight="800"
+    font-weight="900"
     fill="#2B1E08"
     letter-spacing="0.3"
   >${escapeXml(safeBadgeText)}</text>
@@ -1064,9 +1106,9 @@ function buildBannerOverlaySvg({
     x="${ctaX + ctaW / 2}"
     y="${ctaY + ctaH / 2 + Math.round(ctaFontSize * 0.34)}"
     text-anchor="middle"
-    font-family="Arial, Helvetica, sans-serif"
+    font-family="BannerHebrew"
     font-size="${ctaFontSize}"
-    font-weight="800"
+    font-weight="900"
     fill="#06281F"
     letter-spacing="0.2"
   >${escapeXml(cta)}</text>
@@ -1075,7 +1117,7 @@ function buildBannerOverlaySvg({
     x="${disclaimerX}"
     y="${disclaimerY}"
     text-anchor="end"
-    font-family="Arial, Helvetica, sans-serif"
+    font-family="BannerHebrew"
     font-size="${disclaimerSize}"
     font-weight="500"
     fill="rgba(255,255,255,0.88)"
