@@ -1,27 +1,11 @@
 import http from "node:http";
 import fs from "node:fs/promises";
-import fssync from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import PocketBase from "pocketbase";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 
-const fontRegular = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-Regular.ttf")
-);
-
-const fontBold = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-Bold.ttf")
-);
-
-const fontExtraBold = fssync.readFileSync(
-  path.join(process.cwd(), "public/fonts/NotoSansHebrew-SemiCondensed-ExtraBold.ttf")
-);
-
-const fontRegularBase64 = fontRegular.toString("base64")
-const fontBoldBase64 = fontBold.toString("base64")
-const fontExtraBoldBase64 = fontExtraBold.toString("base64")
 const PB_URL = process.env.POCKETBASE_URL;
 const ADMIN_EMAIL = process.env.POCKETBASE_ADMIN_EMAIL;
 const ADMIN_PASS = process.env.POCKETBASE_ADMIN_PASSWORD;
@@ -70,9 +54,9 @@ function getSharp() {
       .then((mod) => mod.default || mod)
       .catch((err) => {
         throw new Error(
-          `sharp is required for banner_composer. Install it in the runner service. Original error: ${
+          sharp is required for banner_composer. Install it in the runner service. Original error: ${
             err?.message || err
-          }`
+          }
         );
       });
   }
@@ -303,7 +287,7 @@ function escapeXml(str) {
 }
 
 function paragraphsToHtml(paragraphs) {
-  return paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
+  return paragraphs.map((p) => <p>${escapeHtml(p)}</p>).join("\n");
 }
 
 function countWords(text) {
@@ -350,9 +334,9 @@ function clampWordRange(text, minWords = 430, maxWords = 500) {
 
 function buildSeoTitles(briefTitle) {
   return [
-    `${briefTitle} – הזדמנות נדל"ן שכדאי להכיר`,
-    `${briefTitle}: כל מה שחשוב לדעת`,
-    `${briefTitle} – מחיר, מיקום ופוטנציאל`,
+    ${briefTitle} – הזדמנות נדל"ן שכדאי להכיר,
+    ${briefTitle}: כל מה שחשוב לדעת,
+    ${briefTitle} – מחיר, מיקום ופוטנציאל,
   ];
 }
 
@@ -361,32 +345,32 @@ function buildArticleTitle(briefTitle) {
 }
 
 function buildArticleSubtitle(audience, angle) {
-  return `בחינה ממוקדת של ההזדמנות, היתרונות והמסר המרכזי סביב ${angle}, בהתאמה ל-${audience}.`;
+  return בחינה ממוקדת של ההזדמנות, היתרונות והמסר המרכזי סביב ${angle}, בהתאמה ל-${audience}.;
 }
 
 function buildContextSentence(additionalContext) {
   if (!additionalContext) return "";
-  return ` מהנתונים שנמסרו עולה כי ${additionalContext}.`;
+  return  מהנתונים שנמסרו עולה כי ${additionalContext}.;
 }
 
 function buildKeyPointsSentence(keyPoints) {
   if (!keyPoints.length) return "";
-  return ` בין הנקודות שחשוב לשלב בתמונה הכוללת נמצאות גם ${keyPoints.join(", ")}.`;
+  return  בין הנקודות שחשוב לשלב בתמונה הכוללת נמצאות גם ${keyPoints.join(", ")}.;
 }
 
 function buildAssetsSummaryText(assets) {
   const parts = [];
 
   if (assets.logos.length) {
-    parts.push(`לוגואים: ${assets.logos.join(", ")}`);
+    parts.push(לוגואים: ${assets.logos.join(", ")});
   }
 
   if (assets.images.length) {
-    parts.push(`תמונות שסופקו: ${assets.images.join(", ")}`);
+    parts.push(תמונות שסופקו: ${assets.images.join(", ")});
   }
 
   if (assets.inspiration.length) {
-    parts.push(`קישורי השראה: ${assets.inspiration.join(", ")}`);
+    parts.push(קישורי השראה: ${assets.inspiration.join(", ")});
   }
 
   return parts.join(" | ");
@@ -503,14 +487,14 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 180000) {
 
     if (!res.ok) {
       throw new Error(
-        `Gemini HTTP ${res.status}: ${json?.error?.message || text || "Unknown error"}`
+        Gemini HTTP ${res.status}: ${json?.error?.message || text || "Unknown error"}
       );
     }
 
     return json;
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error(`Gemini request timed out after ${timeoutMs}ms`);
+      throw new Error(Gemini request timed out after ${timeoutMs}ms);
     }
     throw err;
   } finally {
@@ -524,8 +508,8 @@ async function generateGeminiImage(plan) {
   }
 
   const url =
-    `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_IMAGE_MODEL)}:generateContent` +
-    `?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+    ${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_IMAGE_MODEL)}:generateContent +
+    ?key=${encodeURIComponent(process.env.GEMINI_API_KEY)};
 
   const body = {
     contents: [
@@ -558,7 +542,7 @@ async function generateGeminiImage(plan) {
 
   if (!firstImage?.data) {
     throw new Error(
-      `Gemini image generation returned no inline image for ${plan.banner_name}`
+      Gemini image generation returned no inline image for ${plan.banner_name}
     );
   }
 
@@ -590,9 +574,9 @@ function slugify(value) {
 function relativePathToPublicUrl(relativePath) {
   const clean = String(relativePath).replaceAll("\\", "/").replace(/^\/+/, "");
   if (PUBLIC_ASSET_BASE_URL) {
-    return `${PUBLIC_ASSET_BASE_URL}/files/${clean}`;
+    return ${PUBLIC_ASSET_BASE_URL}/files/${clean};
   }
-  return `/files/${clean}`;
+  return /files/${clean};
 }
 
 async function saveBufferToPublic(subdir, filename, buffer) {
@@ -632,7 +616,7 @@ async function saveGeneratedImageToPublic({
   if (mimeType === "image/jpeg") ext = "jpg";
   else if (mimeType === "image/webp") ext = "webp";
 
-  const finalFilename = `${filenameBase}.${ext}`;
+  const finalFilename = ${filenameBase}.${ext};
 
   let outputBuffer = inputBuffer;
 
@@ -660,7 +644,7 @@ async function readLocalFileSafe(filePath) {
 async function readUrlAsBuffer(url) {
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`Failed to fetch asset: ${url} (${res.status})`);
+    throw new Error(Failed to fetch asset: ${url} (${res.status}));
   }
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);
@@ -701,7 +685,7 @@ function wrapText(text, maxCharsPerLine) {
   let current = "";
 
   for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
+    const candidate = current ? ${current} ${word} : word;
     if (candidate.length <= maxCharsPerLine) {
       current = candidate;
     } else {
@@ -772,356 +756,90 @@ function buildBannerOverlaySvg({
   logoInsetWidth = 0,
 }) {
   const m = getBannerLayoutMetrics(width, height);
-
-  const isVertical = height > width * 1.2;
-  const isLandscape = width > height * 1.2;
-
   const headlineLines = wrapText(headline, m.maxHeadlineChars).slice(0, 3);
   const subheadlineLines = wrapText(subheadline, m.maxSubChars).slice(0, 3);
 
-  const overlayX = Math.round(width * 0.05);
-  const overlayY = Math.round(height * 0.06);
-  const overlayW = Math.round(width * 0.9);
-  const overlayH = Math.round(height * 0.88);
+  const overlayX = m.paddingX;
+  const overlayW = width - m.paddingX * 2;
+  const overlayY = Math.round(height * 0.08);
+  const overlayH = Math.round(height * 0.84);
 
-  const cardW = isLandscape
-    ? Math.round(width * 0.42)
-    : isVertical
-    ? Math.round(width * 0.84)
-    : Math.round(width * 0.82);
-
-  const cardH = isLandscape
-    ? Math.round(height * 0.74)
-    : isVertical
-    ? Math.round(height * 0.5)
-    : Math.round(height * 0.52);
-
-  const cardX = isLandscape
-    ? Math.round(width * 0.06)
-    : Math.round(width * 0.08);
-
-  const cardY = isLandscape
-    ? Math.round(height * 0.13)
-    : isVertical
-    ? Math.round(height * 0.1)
-    : Math.round(height * 0.12);
-
-  const accentBarW = Math.round(cardW * 0.035);
-  const accentBarH = Math.round(cardH * 0.78);
-
-  const badgeW = isVertical
-    ? Math.round(cardW * 0.62)
-    : Math.round(cardW * 0.5);
-
-  const badgeH = Math.round(cardH * 0.12);
-
-  const badgeX = cardX + Math.round(cardW * 0.08);
-  const badgeY = cardY + Math.round(cardH * 0.08);
-
-  const headlineSize = isVertical
-    ? Math.round(width * 0.085)
-    : isLandscape
-    ? Math.round(height * 0.11)
-    : Math.round(width * 0.07);
-
-  const headlineLineGap = Math.round(headlineSize * 1.06);
-
-  const subheadlineSize = isVertical
-    ? Math.round(width * 0.042)
-    : isLandscape
-    ? Math.round(height * 0.052)
-    : Math.round(width * 0.034);
-
-  const subLineGap = Math.round(subheadlineSize * 1.45);
-
-  const headlineX = cardX + Math.round(cardW * 0.9);
-  const headlineStartY = badgeY + badgeH + Math.round(cardH * 0.15);
-
+  const headlineStartY = m.topY;
+  const headlineLineGap = Math.round(m.headlineSize * 1.22);
   const subStartY =
     headlineStartY +
     headlineLines.length * headlineLineGap +
-    Math.round(cardH * 0.07);
+    Math.round(height * 0.03);
+  const subLineGap = Math.round(m.subheadlineSize * 1.5);
 
-  const ctaW = isVertical
-    ? Math.round(cardW * 0.72)
-    : Math.round(cardW * 0.58);
-
-  const ctaH = Math.round(cardH * 0.12);
-  const ctaX = cardX + Math.round(cardW * 0.08);
-  const ctaY = cardY + cardH - ctaH - Math.round(cardH * 0.08);
-
-  const ctaFontSize = isVertical
-    ? Math.round(width * 0.04)
-    : isLandscape
-    ? Math.round(height * 0.045)
-    : Math.round(width * 0.033);
-
-  const disclaimerSize = isVertical
-    ? Math.round(width * 0.023)
-    : isLandscape
-    ? Math.round(height * 0.026)
-    : Math.round(width * 0.02);
-
-  const disclaimerX = width - Math.round(width * 0.05);
-  const disclaimerY = height - Math.round(height * 0.04);
-
-  const logoBoxW =
-    logoInsetWidth > 0
-      ? Math.max(logoInsetWidth, Math.round(cardW * 0.34))
-      : Math.round(cardW * 0.34);
-
-  const logoBoxH = Math.round(cardH * 0.12);
-  const logoBoxX = cardX + Math.round(cardW * 0.08);
-  const logoBoxY = cardY + cardH - ctaH - logoBoxH - Math.round(cardH * 0.13);
+  const buttonY = height - Math.round(height * 0.19);
+  const buttonX = overlayX;
+  const disclaimerY = height - Math.round(height * 0.05);
 
   const headlineText = headlineLines
     .map((line, index) => {
       const y = headlineStartY + index * headlineLineGap;
-      return `
-      <text
-        x="${headlineX}"
-        y="${y}"
-        text-anchor="end"
-        font-family="BannerHebrew"
-        font-size="${headlineSize}"
-        font-weight="900"
-        fill="url(#goldText)"
-        filter="url(#headlineGlow)"
-        letter-spacing="0.2"
-      >${escapeXml(line)}</text>`;
+      return <text x="${
+        width - overlayX
+      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
+        m.headlineSize
+      }" font-weight="700" fill="#FFFFFF">${escapeXml(line)}</text>;
     })
     .join("");
 
   const subText = subheadlineLines
     .map((line, index) => {
       const y = subStartY + index * subLineGap;
-      return `
-      <text
-        x="${headlineX}"
-        y="${y}"
-        text-anchor="end"
-        font-family="BannerHebrew"
-        font-size="${subheadlineSize}"
-        font-weight="500"
-        fill="#F8FAFC"
-        opacity="0.95"
-      >${escapeXml(line)}</text>`;
+      return <text x="${
+        width - overlayX
+      }" y="${y}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${
+        m.subheadlineSize
+      }" font-weight="500" fill="#EAF2FF">${escapeXml(line)}</text>;
     })
     .join("");
 
   const logoRect =
     logoInsetWidth > 0
-      ? `
-      <rect
-        x="${logoBoxX}"
-        y="${logoBoxY}"
-        rx="18"
-        ry="18"
-        width="${logoBoxW}"
-        height="${logoBoxH}"
-        fill="rgba(255,255,255,0.12)"
-        stroke="rgba(255,255,255,0.18)"
-        stroke-width="1.2"
-      />`
+      ? <rect x="${overlayX}" y="${Math.round(
+          height * 0.045
+        )}" rx="14" ry="14" width="${logoInsetWidth}" height="${Math.round(
+          height * 0.08
+        )}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)" />
       : "";
-
-  const badgeText =
-    headline.includes("₪") || headline.includes("ש״ח") || headline.includes("ש\"ח")
-      ? headline
-      : "הזדמנות השקעה ייחודית";
-
-  const safeBadgeText =
-    badgeText.length > 26 ? badgeText.slice(0, 26).trim() + "…" : badgeText;
 
   return `
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-  <style>
-    @font-face {
-      font-family: 'BannerHebrew';
-      src: url("data:font/ttf;base64,${fontRegularBase64}") format("truetype");
-      font-weight: 400;
-    }
-
-    @font-face {
-      font-family: 'BannerHebrew';
-      src: url("data:font/ttf;base64,${fontBoldBase64}") format("truetype");
-      font-weight: 700;
-    }
-
-    @font-face {
-      font-family: 'BannerHebrew';
-      src: url("data:font/ttf;base64,${fontExtraBoldBase64}") format("truetype");
-      font-weight: 900;
-    }
-
-    text {
-      font-family: 'BannerHebrew';
-      direction: rtl;
-      unicode-bidi: plaintext;
-    }
-  </style>
-
   <defs>
     <linearGradient id="darkFade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(0,0,0,0.10)"/>
-      <stop offset="38%" stop-color="rgba(0,0,0,0.28)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0.68)"/>
+      <stop offset="0%" stop-color="rgba(0,0,0,0.18)"/>
+      <stop offset="40%" stop-color="rgba(0,0,0,0.34)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.64)"/>
     </linearGradient>
-
-    <linearGradient id="sideFade" x1="1" y1="0" x2="0" y2="0">
-      <stop offset="0%" stop-color="rgba(0,0,0,0.05)"/>
-      <stop offset="45%" stop-color="rgba(0,0,0,0.10)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0.55)"/>
+    <linearGradient id="cardGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(7,31,67,0.30)"/>
+      <stop offset="100%" stop-color="rgba(0,180,216,0.12)"/>
     </linearGradient>
-
-    <linearGradient id="glassCard" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="rgba(15,23,42,0.72)"/>
-      <stop offset="55%" stop-color="rgba(15,23,42,0.56)"/>
-      <stop offset="100%" stop-color="rgba(30,41,59,0.42)"/>
-    </linearGradient>
-
-    <linearGradient id="goldText" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FFF7CC"/>
-      <stop offset="18%" stop-color="#FCE38A"/>
-      <stop offset="45%" stop-color="#D4AF37"/>
-      <stop offset="70%" stop-color="#FFF0B3"/>
-      <stop offset="100%" stop-color="#B8891D"/>
-    </linearGradient>
-
-    <linearGradient id="goldBadge" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FFF5C2"/>
-      <stop offset="35%" stop-color="#E4C35A"/>
-      <stop offset="70%" stop-color="#C5962B"/>
-      <stop offset="100%" stop-color="#8C6417"/>
-    </linearGradient>
-
-    <linearGradient id="ctaGradient" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#10B981"/>
-      <stop offset="100%" stop-color="#34D399"/>
-    </linearGradient>
-
-    <filter id="headlineGlow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feColorMatrix
-        in="blur"
-        type="matrix"
-        values="1 0 0 0 0.85
-                0 1 0 0 0.72
-                0 0 1 0 0.25
-                0 0 0 0.9 0"
-        result="goldGlow"
-      />
-      <feMerge>
-        <feMergeNode in="goldGlow"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="rgba(0,0,0,0.35)"/>
-    </filter>
-
-    <filter id="buttonShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="rgba(16,185,129,0.35)"/>
-    </filter>
   </defs>
 
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#darkFade)"/>
-  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#sideFade)"/>
-
-  <rect
-    x="${overlayX}"
-    y="${overlayY}"
-    rx="34"
-    ry="34"
-    width="${overlayW}"
-    height="${overlayH}"
-    fill="rgba(255,255,255,0.04)"
-    opacity="0.55"
-  />
-
-  <rect
-    x="${cardX}"
-    y="${cardY}"
-    rx="34"
-    ry="34"
-    width="${cardW}"
-    height="${cardH}"
-    fill="url(#glassCard)"
-    stroke="rgba(255,255,255,0.15)"
-    stroke-width="1.4"
-    filter="url(#softShadow)"
-  />
-
-  <rect
-    x="${cardX + Math.round(cardW * 0.04)}"
-    y="${cardY + Math.round(cardH * 0.08)}"
-    rx="${Math.round(accentBarW / 2)}"
-    ry="${Math.round(accentBarW / 2)}"
-    width="${accentBarW}"
-    height="${accentBarH}"
-    fill="url(#goldBadge)"
-    opacity="0.95"
-  />
-
-  <rect
-    x="${badgeX}"
-    y="${badgeY}"
-    rx="${Math.round(badgeH / 2)}"
-    ry="${Math.round(badgeH / 2)}"
-    width="${badgeW}"
-    height="${badgeH}"
-    fill="url(#goldBadge)"
-    opacity="0.98"
-  />
-
-  <text
-    x="${badgeX + badgeW / 2}"
-    y="${badgeY + badgeH / 2 + Math.round(badgeH * 0.16)}"
-    text-anchor="middle"
-    font-family="BannerHebrew"
-    font-size="${Math.round(badgeH * 0.36)}"
-    font-weight="900"
-    fill="#2B1E08"
-    letter-spacing="0.3"
-  >${escapeXml(safeBadgeText)}</text>
+  <rect x="${overlayX}" y="${overlayY}" rx="28" ry="28" width="${overlayW}" height="${overlayH}" fill="url(#cardGlow)" stroke="rgba(255,255,255,0.14)"/>
+  ${logoRect}
 
   ${headlineText}
   ${subText}
 
-  ${logoRect}
+  <rect x="${buttonX}" y="${buttonY}" rx="${Math.round(
+    m.buttonHeight / 2
+  )}" ry="${Math.round(m.buttonHeight / 2)}" width="${
+    m.buttonWidth
+  }" height="${m.buttonHeight}" fill="#20C997"/>
+  <text x="${buttonX + m.buttonWidth / 2}" y="${
+    buttonY + m.buttonHeight / 2 + m.ctaSize * 0.35
+  }" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${
+    m.ctaSize
+  }" font-weight="700" fill="#07131C">${escapeXml(cta)}</text>
 
-  <rect
-    x="${ctaX}"
-    y="${ctaY}"
-    rx="${Math.round(ctaH / 2)}"
-    ry="${Math.round(ctaH / 2)}"
-    width="${ctaW}"
-    height="${ctaH}"
-    fill="url(#ctaGradient)"
-    filter="url(#buttonShadow)"
-  />
-
-  <text
-    x="${ctaX + ctaW / 2}"
-    y="${ctaY + ctaH / 2 + Math.round(ctaFontSize * 0.34)}"
-    text-anchor="middle"
-    font-family="BannerHebrew"
-    font-size="${ctaFontSize}"
-    font-weight="900"
-    fill="#06281F"
-    letter-spacing="0.2"
-  >${escapeXml(cta)}</text>
-
-  <text
-    x="${disclaimerX}"
-    y="${disclaimerY}"
-    text-anchor="end"
-    font-family="BannerHebrew"
-    font-size="${disclaimerSize}"
-    font-weight="500"
-    fill="rgba(255,255,255,0.88)"
-  >${escapeXml(disclaimer)}</text>
+  <text x="${width - overlayX}" y="${disclaimerY}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="${m.disclaimerSize}" font-weight="400" fill="rgba(255,255,255,0.82)">${escapeXml(disclaimer)}</text>
 </svg>
   `.trim();
 }
@@ -1142,17 +860,17 @@ function buildArticleParagraphs(task) {
   const keyPointsSentence = buildKeyPointsSentence(keyPoints);
 
   return [
-    `${briefTitle} מציב על השולחן הצעה שקשה להתעלם ממנה, במיוחד בתקופה שבה משקיעים מחפשים עסקה שמחברת בין מחיר כניסה נגיש, מיקום נכון ופוטנציאל ברור להשבחה. במקום להסתפק במסר כללי על נדל"ן, כאן מדובר בהזדמנות שמכוונת בדיוק למה שמעניין היום קהל שמחפש ערך אמיתי: להבין איפה נמצא היתרון, למה דווקא עכשיו, ואיך עסקה אחת יכולה לייצר שילוב בין סיכוי כלכלי גבוה לבין תחושת ביטחון גדולה יותר בהחלטה.${contextSentence}`,
+    ${briefTitle} מציב על השולחן הצעה שקשה להתעלם ממנה, במיוחד בתקופה שבה משקיעים מחפשים עסקה שמחברת בין מחיר כניסה נגיש, מיקום נכון ופוטנציאל ברור להשבחה. במקום להסתפק במסר כללי על נדל"ן, כאן מדובר בהזדמנות שמכוונת בדיוק למה שמעניין היום קהל שמחפש ערך אמיתי: להבין איפה נמצא היתרון, למה דווקא עכשיו, ואיך עסקה אחת יכולה לייצר שילוב בין סיכוי כלכלי גבוה לבין תחושת ביטחון גדולה יותר בהחלטה.${contextSentence},
 
-    `אחד היתרונות המשמעותיים בעסקה מהסוג הזה הוא היכולת להיכנס לשוק עם תנאי פתיחה אטרקטיביים יחסית, מבלי להידרש בהכרח להון עצום כבר בשלב הראשון. עבור ${audience}, זהו בדיוק המקום שבו ההבדל בין עסקה “מעניינת” לעסקה “חזקה” מתחיל להתבהר. כאשר המחיר מדויק, המיקום נכון והסיפור הכולל יושב על היגיון מסחרי ברור, הרבה יותר קל לראות איך ההזדמנות הזו לא נשענת רק על חלום, אלא על יסודות שמאפשרים לה להיראות רלוונטית גם בטווח הקרוב וגם בטווח הארוך.`,
+    אחד היתרונות המשמעותיים בעסקה מהסוג הזה הוא היכולת להיכנס לשוק עם תנאי פתיחה אטרקטיביים יחסית, מבלי להידרש בהכרח להון עצום כבר בשלב הראשון. עבור ${audience}, זהו בדיוק המקום שבו ההבדל בין עסקה “מעניינת” לעסקה “חזקה” מתחיל להתבהר. כאשר המחיר מדויק, המיקום נכון והסיפור הכולל יושב על היגיון מסחרי ברור, הרבה יותר קל לראות איך ההזדמנות הזו לא נשענת רק על חלום, אלא על יסודות שמאפשרים לה להיראות רלוונטית גם בטווח הקרוב וגם בטווח הארוך.,
 
-    `הזווית המרכזית כאן היא ${angle}, ולכן חשוב לבחון לא רק את המחיר או את הכותרת הראשית, אלא את מכלול המרכיבים שהופכים את ההצעה למשמעותית באמת. מיקום טוב, נגישות, ביקוש פוטנציאלי, סביבת פיתוח ותנאים מסחריים נוחים הם לא פרטים שוליים, אלא הלב של העסקה כולה.${keyPointsSentence} כשמחברים את כל המרכיבים האלה יחד, מתקבלת תמונה רחבה יותר: לא רק נכס או יחידה על הנייר, אלא מהלך שיכול להתאים למי שמבקש לזהות מראש את המקומות שבהם פוטנציאל כלכלי פוגש מחיר נכון.`,
+    הזווית המרכזית כאן היא ${angle}, ולכן חשוב לבחון לא רק את המחיר או את הכותרת הראשית, אלא את מכלול המרכיבים שהופכים את ההצעה למשמעותית באמת. מיקום טוב, נגישות, ביקוש פוטנציאלי, סביבת פיתוח ותנאים מסחריים נוחים הם לא פרטים שוליים, אלא הלב של העסקה כולה.${keyPointsSentence} כשמחברים את כל המרכיבים האלה יחד, מתקבלת תמונה רחבה יותר: לא רק נכס או יחידה על הנייר, אלא מהלך שיכול להתאים למי שמבקש לזהות מראש את המקומות שבהם פוטנציאל כלכלי פוגש מחיר נכון.,
 
-    `מעבר לנתונים עצמם, יש כאן גם היגיון שיווקי ונדל"ני ברור. שוק שמציע הזדמנויות אמיתיות הוא בדרך כלל שוק שבו קיימת תנועה, קיימת ציפייה להמשך התפתחות, וקיימת סיבה טובה לכך שקהל רחב מגלה עניין. זו בדיוק הנקודה שבה משקיעים מנוסים שואלים לא רק “כמה זה עולה”, אלא גם “מה הסיפור שמאחורי זה”, “מה עשוי לקרות בהמשך”, ו”איפה נמצאת נקודת היתרון ביחס לאלטרנטיבות אחרות”. כאשר יש תשובות טובות לשאלות הללו, העסקה מתחילה להיראות הרבה יותר מגובשת, רצינית ובעלת פוטנציאל ממשי.`,
+    מעבר לנתונים עצמם, יש כאן גם היגיון שיווקי ונדל"ני ברור. שוק שמציע הזדמנויות אמיתיות הוא בדרך כלל שוק שבו קיימת תנועה, קיימת ציפייה להמשך התפתחות, וקיימת סיבה טובה לכך שקהל רחב מגלה עניין. זו בדיוק הנקודה שבה משקיעים מנוסים שואלים לא רק “כמה זה עולה”, אלא גם “מה הסיפור שמאחורי זה”, “מה עשוי לקרות בהמשך”, ו”איפה נמצאת נקודת היתרון ביחס לאלטרנטיבות אחרות”. כאשר יש תשובות טובות לשאלות הללו, העסקה מתחילה להיראות הרבה יותר מגובשת, רצינית ובעלת פוטנציאל ממשי.,
 
-    `לצד זה, חשוב לזכור שגם בנדל"ן, כמו בכל תחום השקעה, ההבדל המשמעותי נמצא לא פעם ביכולת לזהות מוקדם הזדמנות שמציעה יתרון תמחורי או יתרון מיקומי לפני שהשוק הרחב מתמחר אותה במלואה. זו בדיוק הסיבה שבגללה עסקאות מסוימות מייצרות עניין מיוחד: הן מצליחות לחבר בין כניסה נוחה יותר לבין אופק שיכול להיות חזק יותר בעתיד. עבור מי שמבקש לבנות תיק חכם, לגוון השקעות או לבחון מהלך חדש, מדובר בזווית שמצדיקה בדיקה רצינית ולא רק הסתכלות שטחית.`,
+    לצד זה, חשוב לזכור שגם בנדל"ן, כמו בכל תחום השקעה, ההבדל המשמעותי נמצא לא פעם ביכולת לזהות מוקדם הזדמנות שמציעה יתרון תמחורי או יתרון מיקומי לפני שהשוק הרחב מתמחר אותה במלואה. זו בדיוק הסיבה שבגללה עסקאות מסוימות מייצרות עניין מיוחד: הן מצליחות לחבר בין כניסה נוחה יותר לבין אופק שיכול להיות חזק יותר בעתיד. עבור מי שמבקש לבנות תיק חכם, לגוון השקעות או לבחון מהלך חדש, מדובר בזווית שמצדיקה בדיקה רצינית ולא רק הסתכלות שטחית.,
 
-    `בשורה התחתונה, ${briefTitle} הוא מהלך שמבקש לדבר בשפה שכל משקיע רוצה לשמוע: מחיר ברור, היגיון ברור ופוטנציאל ברור יותר. כאשר העסקה נשענת על נתונים נכונים, על מיקום שיודע לייצר עניין ועל מסר שיווקי שמחובר למציאות, היא מצליחה לבלוט בשוק עמוס אפשרויות. מי שמחפש את ההזדמנות הבאה שלו לא צריך להסתפק בכותרת טובה בלבד — אלא לבדוק לעומק, לשאול את השאלות הנכונות ולבחון אם זו בדיוק הנקודה שבה כדאי להיכנס. ${cta}`,
+    בשורה התחתונה, ${briefTitle} הוא מהלך שמבקש לדבר בשפה שכל משקיע רוצה לשמוע: מחיר ברור, היגיון ברור ופוטנציאל ברור יותר. כאשר העסקה נשענת על נתונים נכונים, על מיקום שיודע לייצר עניין ועל מסר שיווקי שמחובר למציאות, היא מצליחה לבלוט בשוק עמוס אפשרויות. מי שמחפש את ההזדמנות הבאה שלו לא צריך להסתפק בכותרת טובה בלבד — אלא לבדוק לעומק, לשאול את השאלות הנכונות ולבחון אם זו בדיוק הנקודה שבה כדאי להיכנס. ${cta},
   ];
 }
 
@@ -1170,13 +888,13 @@ function buildArticleCreateOutput(task) {
   const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const finalParagraphs = normalizeArticleParagraphs(articleText);
 
-  const articleHtml = `
+  const articleHtml = 
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
   <h2>${escapeHtml(subtitle)}</h2>
   ${paragraphsToHtml(finalParagraphs)}
 </section>
-  `.trim();
+  .trim();
 
   return {
     ok: true,
@@ -1204,23 +922,23 @@ function buildArticleRevisionParagraphs(task, previousOutput, notes) {
   const prevText = normalizeText(previousOutput.article_text, "");
 
   return [
-    `${briefTitle} מוצג כאן בגרסה מחודשת ומדויקת יותר, לאחר מעבר על ההערות שנמסרו ועל הכיוון שהתוכן צריך להעביר. המטרה בעדכון כזה אינה לשנות סתם מילים, אלא לחזק את מה שחשוב באמת: הכותרת, הזווית, הזרימה והיכולת של הכתבה להציג את ההזדמנות בצורה משכנעת, טבעית וברורה יותר.`,
+    ${briefTitle} מוצג כאן בגרסה מחודשת ומדויקת יותר, לאחר מעבר על ההערות שנמסרו ועל הכיוון שהתוכן צריך להעביר. המטרה בעדכון כזה אינה לשנות סתם מילים, אלא לחזק את מה שחשוב באמת: הכותרת, הזווית, הזרימה והיכולת של הכתבה להציג את ההזדמנות בצורה משכנעת, טבעית וברורה יותר.,
 
-    `במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק “תוקן”, אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${
+    במסגרת העדכון הוטמעו ההערות המרכזיות שעלו: ${notesText} המשמעות היא שהתוכן לא רק “תוקן”, אלא עבר שיפור שמחזק את הקריאות, מדייק את המסרים ומשפר את הדרך שבה הקורא פוגש את הערך של ההצעה כבר מהפסקאות הראשונות. ${
       additionalContext
-        ? `בנוסף, נשמר חיבור ישיר גם למידע המשלים שנמסר: ${additionalContext}.`
+        ? בנוסף, נשמר חיבור ישיר גם למידע המשלים שנמסר: ${additionalContext}.
         : ""
-    }`,
+    },
 
-    `כאשר בוחנים כתבה שיווקית טובה, מה שחשוב הוא לא רק אילו נתונים מוצגים, אלא גם איך הם מוגשים. לכן נעשה כאן מאמץ להחליק את המעברים בין הרעיונות, להסיר ניסוחים חלשים או כלליים מדי, ולחדד את המקומות שבהם הכתבה צריכה להרגיש בטוחה יותר, מקצועית יותר ורלוונטית יותר למי שקורא אותה בפועל.`,
+    כאשר בוחנים כתבה שיווקית טובה, מה שחשוב הוא לא רק אילו נתונים מוצגים, אלא גם איך הם מוגשים. לכן נעשה כאן מאמץ להחליק את המעברים בין הרעיונות, להסיר ניסוחים חלשים או כלליים מדי, ולחדד את המקומות שבהם הכתבה צריכה להרגיש בטוחה יותר, מקצועית יותר ורלוונטית יותר למי שקורא אותה בפועל.,
 
-    `הגרסה הקודמת כללה בין היתר את הפתיחה הבאה: ${prevText.slice(0, 220)}${
+    הגרסה הקודמת כללה בין היתר את הפתיחה הבאה: ${prevText.slice(0, 220)}${
       prevText.length > 220 ? "..." : ""
-    } מתוך הבסיס הזה בוצע שכתוב שמבקש לשמור על מה שהיה נכון, אבל לשפר את המקומות שהיו זקוקים לדיוק, להעמקה או לנוכחות חזקה יותר של המסר המרכזי.`,
+    } מתוך הבסיס הזה בוצע שכתוב שמבקש לשמור על מה שהיה נכון, אבל לשפר את המקומות שהיו זקוקים לדיוק, להעמקה או לנוכחות חזקה יותר של המסר המרכזי.,
 
-    `בפועל, כתבה שיווקית חזקה צריכה לגרום לקורא להבין במהירות מה מייחד את ההזדמנות, מה מצדיק את הבדיקה שלה, ואיזה ערך היא עשויה לייצר. זו הסיבה שהנוסח החדש מקפיד יותר על איזון בין תוכן ענייני לבין שפה שיווקית בטוחה, מבלי לגלוש להגזמות או לניסוחים מלאכותיים מדי.`,
+    בפועל, כתבה שיווקית חזקה צריכה לגרום לקורא להבין במהירות מה מייחד את ההזדמנות, מה מצדיק את הבדיקה שלה, ואיזה ערך היא עשויה לייצר. זו הסיבה שהנוסח החדש מקפיד יותר על איזון בין תוכן ענייני לבין שפה שיווקית בטוחה, מבלי לגלוש להגזמות או לניסוחים מלאכותיים מדי.,
 
-    `בסופו של דבר, ${briefTitle} בגרסה הזו נועד להרגיש שלם, מהודק ומשכנע יותר. אם יהיה צורך, אפשר להמשיך מכאן לעוד סבב חידוד ממוקד — בין אם ברמת הטון, הכותרת, אורך הכתבה או ההדגשים המרכזיים — אבל כבר עכשיו מדובר בנוסח שמכוון טוב יותר למטרה שלו ומשקף את ההזדמנות בצורה בשלה יותר.`,
+    בסופו של דבר, ${briefTitle} בגרסה הזו נועד להרגיש שלם, מהודק ומשכנע יותר. אם יהיה צורך, אפשר להמשיך מכאן לעוד סבב חידוד ממוקד — בין אם ברמת הטון, הכותרת, אורך הכתבה או ההדגשים המרכזיים — אבל כבר עכשיו מדובר בנוסח שמכוון טוב יותר למטרה שלו ומשקף את ההזדמנות בצורה בשלה יותר.,
   ];
 }
 
@@ -1231,7 +949,7 @@ function buildArticleRevisionOutput(task) {
   const notes = getRevisionNotes(task);
   const cta = getCTA(task);
 
-  const title = `${normalizeText(previousOutput.title, briefTitle)} – גרסה מעודכנת`;
+  const title = ${normalizeText(previousOutput.title, briefTitle)} – גרסה מעודכנת;
   const subtitle =
     "נוסח מחודש עם חידוד המסר, שיפור הזרימה והבלטה ברורה יותר של היתרונות המרכזיים.";
 
@@ -1239,13 +957,13 @@ function buildArticleRevisionOutput(task) {
   const articleText = clampWordRange(paragraphs.join("\n\n"), 430, 500);
   const finalParagraphs = normalizeArticleParagraphs(articleText);
 
-  const articleHtml = `
+  const articleHtml = 
 <section dir="rtl" lang="${escapeHtml(language)}">
   <h1>${escapeHtml(title)}</h1>
   <h2>${escapeHtml(subtitle)}</h2>
   ${paragraphsToHtml(finalParagraphs)}
 </section>
-  `.trim();
+  .trim();
 
   return {
     ok: true,
@@ -1278,16 +996,16 @@ function buildAdsCreateOutput(task) {
     mode: "create",
     deliverable: "ads",
     headlines: [
-      `${briefTitle} שמדבר לקהל הנכון`,
-      `${briefTitle} בזווית ברורה ומשכנעת`,
-      `כך מציגים את ${briefTitle} בצורה חכמה יותר`,
-      `${briefTitle} עם מסר חד יותר`,
-      `${briefTitle} – כשבהירות פוגשת תוצאה`,
+      ${briefTitle} שמדבר לקהל הנכון,
+      ${briefTitle} בזווית ברורה ומשכנעת,
+      כך מציגים את ${briefTitle} בצורה חכמה יותר,
+      ${briefTitle} עם מסר חד יותר,
+      ${briefTitle} – כשבהירות פוגשת תוצאה,
     ],
     primary_texts: [
-      `כדי לקדם את ${briefTitle} בצורה אפקטיבית יותר, צריך מסר ברור, זווית חזקה והתאמה אמיתית ל־${audience}. זה בדיוק מה שבונה מודעה טובה יותר.`,
-      `${briefTitle} יכול לקבל נוכחות שיווקית חזקה יותר כאשר מנסחים אותו סביב ${angle}, שומרים על שפה טבעית, ומובילים את הקורא בצורה ישירה לפעולה.`,
-      `במקום ניסוח כללי, נכון לבנות סביב ${briefTitle} מסר מדויק, אמין וקל להבנה — כזה שמחזק עניין, בונה ביטחון ומניע לפעולה.`,
+      כדי לקדם את ${briefTitle} בצורה אפקטיבית יותר, צריך מסר ברור, זווית חזקה והתאמה אמיתית ל־${audience}. זה בדיוק מה שבונה מודעה טובה יותר.,
+      ${briefTitle} יכול לקבל נוכחות שיווקית חזקה יותר כאשר מנסחים אותו סביב ${angle}, שומרים על שפה טבעית, ומובילים את הקורא בצורה ישירה לפעולה.,
+      במקום ניסוח כללי, נכון לבנות סביב ${briefTitle} מסר מדויק, אמין וקל להבנה — כזה שמחזק עניין, בונה ביטחון ומניע לפעולה.,
     ],
     angles: [angle, "בהירות ודיוק במסר", "בניית אמון והנעה לפעולה"],
     cta_options: [cta, "לקבלת מידע נוסף", "בואו לראות איך זה עובד"],
@@ -1316,15 +1034,15 @@ function buildAdsRevisionOutput(task) {
     previous_headlines_count: previousHeadlines.length,
     previous_texts_count: previousTexts.length,
     headlines: [
-      `${briefTitle} בניסוח מחודד יותר`,
-      `גרסה מעודכנת ל־${briefTitle}`,
-      `${briefTitle} עם מסר ברור ומשופר`,
-      `ניסוח חדש ומדויק יותר ל־${briefTitle}`,
+      ${briefTitle} בניסוח מחודד יותר,
+      גרסה מעודכנת ל־${briefTitle},
+      ${briefTitle} עם מסר ברור ומשופר,
+      ניסוח חדש ומדויק יותר ל־${briefTitle},
     ],
     primary_texts: [
-      `המודעות עבור ${briefTitle} עודכנו לפי ההערות שניתנו, עם דגש על מסר ברור יותר, ניסוח חד יותר והבלטת הערך המרכזי.`,
-      `בוצע חידוד של ההבטחה, שיפור הזרימה והדגשה טובה יותר של התועלת לקורא, כדי להפוך את ${briefTitle} לאפקטיבי יותר ברמת המודעה.`,
-      `לאחר סבב התיקונים, המסר סביב ${briefTitle} מרגיש ממוקד, בטוח וברור יותר, עם התאמה טובה יותר למטרה השיווקית.`,
+      המודעות עבור ${briefTitle} עודכנו לפי ההערות שניתנו, עם דגש על מסר ברור יותר, ניסוח חד יותר והבלטת הערך המרכזי.,
+      בוצע חידוד של ההבטחה, שיפור הזרימה והדגשה טובה יותר של התועלת לקורא, כדי להפוך את ${briefTitle} לאפקטיבי יותר ברמת המודעה.,
+      לאחר סבב התיקונים, המסר סביב ${briefTitle} מרגיש ממוקד, בטוח וברור יותר, עם התאמה טובה יותר למטרה השיווקית.,
     ],
     cta_options: [cta, "קבלו מידע נוסף", "בדקו התאמה עכשיו"],
   };
@@ -1543,13 +1261,13 @@ async function generateArticleWithAI(task) {
 
   const keyPointsText =
     keyPoints.length > 0
-      ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")
+      ? keyPoints.map((p, i) => ${i + 1}. ${p}).join("\n")
       : "אין";
 
   const previousText = normalizeText(previousOutput.article_text, "");
   const previousTitle = normalizeText(previousOutput.title, "");
   const revisionNotesText =
-    notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
+    notes.length > 0 ? notes.map((n, i) => ${i + 1}. ${n}).join("\n") : "אין";
 
   const systemPrompt = [
     'אתה קופירייטר נדל"ן מקצועי שכותב בעברית טבעית, שיווקית, זורמת ואמינה.',
@@ -1565,18 +1283,18 @@ async function generateArticleWithAI(task) {
   ].join(" ");
 
   const userPrompt = [
-    `כתוב כתבה שיווקית מקצועית בעברית לפרסום באתר.`,
-    `נושא הכתבה: ${briefTitle}`,
-    `אורך מבוקש: 420-480 מילים`,
-    `קהל יעד: ${audience}`,
-    `טון: ${tone}`,
-    `זווית מרכזית: ${angle}`,
-    `CTA רצוי: ${cta}`,
-    `מידע נוסף על הנושא:\n${additionalContext || "אין"}`,
-    `נקודות חשובות לשילוב:\n${keyPointsText}`,
-    mode === "revise" ? `כותרת קודמת:\n${previousTitle || "אין"}` : "",
-    mode === "revise" ? `תוכן קודם:\n${previousText || "אין"}` : "",
-    mode === "revise" ? `הערות תיקון:\n${revisionNotesText}` : "",
+    כתוב כתבה שיווקית מקצועית בעברית לפרסום באתר.,
+    נושא הכתבה: ${briefTitle},
+    אורך מבוקש: 420-480 מילים,
+    קהל יעד: ${audience},
+    טון: ${tone},
+    זווית מרכזית: ${angle},
+    CTA רצוי: ${cta},
+    מידע נוסף על הנושא:\n${additionalContext || "אין"},
+    נקודות חשובות לשילוב:\n${keyPointsText},
+    mode === "revise" ? כותרת קודמת:\n${previousTitle || "אין"} : "",
+    mode === "revise" ? תוכן קודם:\n${previousText || "אין"} : "",
+    mode === "revise" ? הערות תיקון:\n${revisionNotesText} : "",
     "החזר JSON בלבד עם השדות: title, subtitle, article_text, seo_titles, cta.",
     "title = כותרת כתבה אמיתית, חדה ומקצועית.",
     "subtitle = תת-כותרת אמיתית, קצרה וטבעית.",
@@ -1629,13 +1347,13 @@ async function generateArticleWithAI(task) {
 
   const finalArticleText = articleParagraphs.join("\n\n");
 
-  const articleHtml = `
+  const articleHtml = 
 <section dir="rtl" lang="he">
   <h1>${escapeHtml(finalTitle)}</h1>
   <h2>${escapeHtml(finalSubtitle)}</h2>
   ${paragraphsToHtml(articleParagraphs)}
 </section>
-  `.trim();
+  .trim();
 
   return {
     ok: true,
@@ -1676,7 +1394,7 @@ async function generateAdsWithAI(task) {
     ? previousOutput.primary_texts.join("\n\n")
     : "אין";
   const revisionNotesText =
-    notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
+    notes.length > 0 ? notes.map((n, i) => ${i + 1}. ${n}).join("\n") : "אין";
 
   const systemPrompt = [
     "אתה קופירייטר שיווקי מקצועי שכותב בעברית טבעית, ברורה ומשכנעת.",
@@ -1686,18 +1404,18 @@ async function generateAdsWithAI(task) {
   ].join(" ");
 
   const userPrompt = [
-    `סוג משימה: ${
+    סוג משימה: ${
       mode === "revise" ? "עריכת מודעות קיימות" : "יצירת מודעות חדשות"
-    }`,
-    `נושא: ${briefTitle}`,
-    `טון: ${tone}`,
-    `קהל יעד: ${audience}`,
-    `זווית מרכזית: ${angle}`,
-    `CTA רצוי: ${cta}`,
-    `מידע נוסף:\n${additionalContext || "אין"}`,
-    mode === "revise" ? `כותרות קודמות:\n${previousHeadlines}` : "",
-    mode === "revise" ? `טקסטים קודמים:\n${previousTexts}` : "",
-    mode === "revise" ? `הערות תיקון:\n${revisionNotesText}` : "",
+    },
+    נושא: ${briefTitle},
+    טון: ${tone},
+    קהל יעד: ${audience},
+    זווית מרכזית: ${angle},
+    CTA רצוי: ${cta},
+    מידע נוסף:\n${additionalContext || "אין"},
+    mode === "revise" ? כותרות קודמות:\n${previousHeadlines} : "",
+    mode === "revise" ? טקסטים קודמים:\n${previousTexts} : "",
+    mode === "revise" ? הערות תיקון:\n${revisionNotesText} : "",
     "החזר JSON בלבד עם השדות: headlines, primary_texts, cta_options, angles.",
     "headlines חייב להכיל בדיוק 5 כותרות.",
     "primary_texts חייב להכיל בדיוק 3 טקסטים.",
@@ -1759,16 +1477,16 @@ async function generateVisualDirectionWithAI(task) {
   ].join(" ");
 
   const userPrompt = [
-    `בנה כיוון קריאייטיב מלא לקמפיין הזה.`,
-    `נושא: ${briefTitle}`,
-    `קהל יעד: ${audience}`,
-    `טון: ${tone}`,
-    `זווית מרכזית: ${angle}`,
-    `CTA: ${cta}`,
-    `מידע נוסף:\n${additionalContext || "אין"}`,
-    `נקודות מפתח:\n${keyPoints.length ? keyPoints.join("\n") : "אין"}`,
-    `Assets שסופקו:\n${assetsText}`,
-    `Planner brief:\n${plannerBriefText}`,
+    בנה כיוון קריאייטיב מלא לקמפיין הזה.,
+    נושא: ${briefTitle},
+    קהל יעד: ${audience},
+    טון: ${tone},
+    זווית מרכזית: ${angle},
+    CTA: ${cta},
+    מידע נוסף:\n${additionalContext || "אין"},
+    נקודות מפתח:\n${keyPoints.length ? keyPoints.join("\n") : "אין"},
+    Assets שסופקו:\n${assetsText},
+    Planner brief:\n${plannerBriefText},
     "החזר JSON בלבד עם השדות:",
     "creative_direction, visual_style, color_palette, banner_brief, landing_page_brief, video_brief, image_prompts, banner_headlines",
     "image_prompts צריכים להיות prompts מוכנים ליצירת תמונות שיווקיות.",
@@ -1812,7 +1530,7 @@ async function generateVisualDirectionWithAI(task) {
 async function listSiblingTasksForSourceTask(sourceTaskId) {
   try {
     return await pb.collection("tasks").getFullList({
-      filter: `input_data.source_task_id = "${sourceTaskId}"`,
+      filter: input_data.source_task_id = "${sourceTaskId}",
       sort: "-created",
     });
   } catch {
@@ -1841,14 +1559,14 @@ function buildImageGeneratorFallback(task, related = {}) {
   const derived =
     banners.length > 0
       ? banners.map((banner, index) => ({
-          banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+          banner_name: normalizeText(banner.name, banner_${index + 1}),
           requested_size: normalizeText(banner.size, "1080x1080"),
           image_size: mapBannerSizeToImageSize(
             normalizeText(banner.size, "1080x1080")
           ),
           prompt: normalizeText(
             banner.image_prompt,
-            `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+            ${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי
           ),
           mime_type: "image/png",
           generation_status: "not_generated",
@@ -1857,7 +1575,7 @@ function buildImageGeneratorFallback(task, related = {}) {
           image_file_path: "",
         }))
       : visualPrompts.map((prompt, index) => ({
-          banner_name: `visual_${index + 1}`,
+          banner_name: visual_${index + 1},
           requested_size: "1080x1080",
           image_size: "1024x1024",
           prompt,
@@ -1907,7 +1625,7 @@ async function generateImagesWithAI(task, related = {}) {
           const imageConfig = mapBannerSizeToGeminiImageConfig(requestedSize);
 
           return {
-            banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+            banner_name: normalizeText(banner.name, banner_${index + 1}),
             requested_size: requestedSize,
             image_size: imageConfig.image_size,
             aspect_ratio: imageConfig.aspect_ratio,
@@ -1916,7 +1634,7 @@ async function generateImagesWithAI(task, related = {}) {
             prompt: [
               normalizeText(
                 banner.image_prompt,
-                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+                ${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי
               ),
               "Create a premium commercial real-estate advertising image.",
               "High-end, photorealistic, polished marketing composition.",
@@ -1929,7 +1647,7 @@ async function generateImagesWithAI(task, related = {}) {
           const imageConfig = mapBannerSizeToGeminiImageConfig("1080x1080");
 
           return {
-            banner_name: `visual_${index + 1}`,
+            banner_name: visual_${index + 1},
             requested_size: "1080x1080",
             image_size: imageConfig.image_size,
             aspect_ratio: imageConfig.aspect_ratio,
@@ -1938,7 +1656,7 @@ async function generateImagesWithAI(task, related = {}) {
             prompt: [
               normalizeText(
                 prompt,
-                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+                ${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי
               ),
               "Create a premium commercial real-estate advertising image.",
               "High-end, photorealistic, polished marketing composition.",
@@ -1960,7 +1678,7 @@ async function generateImagesWithAI(task, related = {}) {
   const generated_images = [];
 
   for (const plan of plans) {
-    console.log(`🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`);
+    console.log(🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio}));
 
     const response = await gemini.models.generateContent({
       model: GEMINI_IMAGE_MODEL,
@@ -1979,13 +1697,13 @@ async function generateImagesWithAI(task, related = {}) {
 
     if (!firstImage?.data) {
       throw new Error(
-        `Gemini image generation returned no inline image for ${plan.banner_name}`
+        Gemini image generation returned no inline image for ${plan.banner_name}
       );
     }
 
-    const fileBase = `${slugify(briefTitle)}-${slugify(
+    const fileBase = ${slugify(briefTitle)}-${slugify(
       plan.banner_name
-    )}-${randomUUID()}`;
+    )}-${randomUUID()};
 
     const saved = await saveGeneratedImageToPublic({
       subdir: "generated-images",
@@ -2267,15 +1985,15 @@ async function generateBannerSetWithAI(task, related = {}) {
   ].join(" ");
 
   const userPrompt = [
-    `צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle}`,
-    `CTA: ${cta}`,
-    `Disclaimer: ${disclaimer}`,
-    `מידע נוסף:\n${additionalContext || "אין"}`,
-    `Assets:\n${assetsText}`,
-    `Planner brief:\n${plannerBriefText}`,
-    `Visual director output:\n${visualPayload}`,
-    `Ad copy output:\n${adsPayload}`,
-    `Image generator output:\n${imagePayload}`,
+    צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle},
+    CTA: ${cta},
+    Disclaimer: ${disclaimer},
+    מידע נוסף:\n${additionalContext || "אין"},
+    Assets:\n${assetsText},
+    Planner brief:\n${plannerBriefText},
+    Visual director output:\n${visualPayload},
+    Ad copy output:\n${adsPayload},
+    Image generator output:\n${imagePayload},
     "החזר JSON בלבד עם השדות:",
     "master_direction, visual_style, color_palette, global_design_notes, final_banners",
     "final_banners חייב להכיל בדיוק 3 באנרים:",
@@ -2443,7 +2161,7 @@ async function composeBannerPng({
   }
 
   if (!backgroundBuffer) {
-    const fallbackBgSvg = `
+    const fallbackBgSvg = 
       <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -2454,7 +2172,7 @@ async function composeBannerPng({
         </defs>
         <rect width="${width}" height="${height}" fill="url(#bg)"/>
       </svg>
-    `.trim();
+    .trim();
 
     backgroundBuffer = await sharp(Buffer.from(fallbackBgSvg))
       .png()
@@ -2518,9 +2236,9 @@ async function composeBannerPng({
     .png()
     .toBuffer();
 
-  const fileName = `${slugify(briefTitle)}-${slugify(
+  const fileName = ${slugify(briefTitle)}-${slugify(
     banner.name
-  )}-${randomUUID()}.png`;
+  )}-${randomUUID()}.png;
   const saved = await saveBufferToPublic("banners", fileName, outputBuffer);
 
   return {
@@ -2606,7 +2324,7 @@ async function runBannerComposer(task) {
       composed_banners.push(composed);
     } catch (e) {
       console.error(
-        `⚠️ banner_composer failed for ${normalizeText(banner.name)}:`,
+        ⚠️ banner_composer failed for ${normalizeText(banner.name)}:,
         e?.message || e
       );
 
@@ -2728,7 +2446,7 @@ function buildPlannerChildren(task, normalizedBrief) {
 
   return [
     {
-      title: `Write ad copy for: ${baseTitle}`,
+      title: Write ad copy for: ${baseTitle},
       type: "ad_copy",
       assigned_agent: "copywriter",
       priority: "high",
@@ -2741,7 +2459,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Write article for: ${baseTitle}`,
+      title: Write article for: ${baseTitle},
       type: "article",
       assigned_agent: "copywriter",
       priority: "normal",
@@ -2754,7 +2472,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Create visual prompts for: ${baseTitle}`,
+      title: Create visual prompts for: ${baseTitle},
       type: "visual_prompts",
       assigned_agent: "visual_director",
       priority: "normal",
@@ -2767,7 +2485,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Generate images for: ${baseTitle}`,
+      title: Generate images for: ${baseTitle},
       type: "background_images",
       assigned_agent: "image_generator",
       priority: "normal",
@@ -2780,7 +2498,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Prepare banner set for: ${baseTitle}`,
+      title: Prepare banner set for: ${baseTitle},
       type: "banner_set",
       assigned_agent: "banner_renderer",
       priority: "normal",
@@ -2793,7 +2511,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Compose final banners for: ${baseTitle}`,
+      title: Compose final banners for: ${baseTitle},
       type: "banner_compose",
       assigned_agent: "banner_composer",
       priority: "normal",
@@ -2806,7 +2524,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Build landing page for: ${baseTitle}`,
+      title: Build landing page for: ${baseTitle},
       type: "landing_page",
       assigned_agent: "landing_page_builder",
       priority: "normal",
@@ -2819,7 +2537,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `Produce video for: ${baseTitle}`,
+      title: Produce video for: ${baseTitle},
       type: "video",
       assigned_agent: "video_producer",
       priority: "normal",
@@ -2832,7 +2550,7 @@ function buildPlannerChildren(task, normalizedBrief) {
       },
     },
     {
-      title: `QA review for: ${baseTitle}`,
+      title: QA review for: ${baseTitle},
       type: "qa_review",
       assigned_agent: "qa",
       priority: "normal",
@@ -2850,7 +2568,7 @@ function buildPlannerChildren(task, normalizedBrief) {
 async function listExistingChildTasks(sourceTaskId) {
   try {
     return await pb.collection("tasks").getFullList({
-      filter: `input_data.source_task_id = "${sourceTaskId}"`,
+      filter: input_data.source_task_id = "${sourceTaskId}",
       sort: "-created",
     });
   } catch {
@@ -2971,10 +2689,10 @@ async function runCopywriter(task) {
     note: "copywriter generic output",
     mode,
     deliverable,
-    summary: `Generated copy output for ${getBriefTitle(task)}.`,
-    hebrew_copy: `נוצר טקסט בסיס עבור ${getBriefTitle(
+    summary: Generated copy output for ${getBriefTitle(task)}.,
+    hebrew_copy: נוצר טקסט בסיס עבור ${getBriefTitle(
       task
-    )}. אפשר להרחיב אותו, לחדד את הטון, או לשלוח סבב תיקונים נוסף לפי צורך.`,
+    )}. אפשר להרחיב אותו, לחדד את הטון, או לשלוח סבב תיקונים נוסף לפי צורך.,
   };
 }
 
@@ -3013,15 +2731,15 @@ const agents = {
         video_brief:
           "סרטון קצר עם פתיחה חזקה, הדגשת מחיר/מיקום/יתרון מרכזי וסיום עם קריאה ברורה לפעולה.",
         image_prompts: [
-          `צור תמונת נדל"ן שיווקית עבור ${getBriefTitle(
+          צור תמונת נדל"ן שיווקית עבור ${getBriefTitle(
             task
-          )} בסגנון יוקרתי, מודרני, נקי, עם תאורה טבעית, קומפוזיציה חזקה ואווירת פרימיום`,
-          `צור ויזואל שיווקי עבור ${getBriefTitle(
+          )} בסגנון יוקרתי, מודרני, נקי, עם תאורה טבעית, קומפוזיציה חזקה ואווירת פרימיום,
+          צור ויזואל שיווקי עבור ${getBriefTitle(
             task
-          )} שמתאים לבאנר נדל"ן, עם דגש על יוקרה, אמינות, השקעה חכמה ונראות מסחרית גבוהה`,
+          )} שמתאים לבאנר נדל"ן, עם דגש על יוקרה, אמינות, השקעה חכמה ונראות מסחרית גבוהה,
         ],
         banner_headlines: [
-          `${getBriefTitle(task)}`,
+          ${getBriefTitle(task)},
           "הזדמנות שכדאי להכיר",
           "זה בדיוק הזמן להיכנס",
         ],
@@ -3049,7 +2767,7 @@ const agents = {
       planner_brief: getTaskInput(task).planner_brief ?? null,
       assets: getAssets(task),
       landing_page: {
-        html: `<!doctype html>
+        html: <!doctype html>
 <html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
@@ -3065,7 +2783,7 @@ const agents = {
     <button type="button" style="padding:10px 16px">שלח</button>
   </form>
 </body>
-</html>`,
+</html>,
       },
     };
   },
@@ -3100,7 +2818,7 @@ export async function runTaskById(taskId) {
   if (!agentName) throw new Error('Task missing "assigned_agent"');
 
   const handler = agents[agentName];
-  if (!handler) throw new Error(`No handler for assigned_agent="${agentName}"`);
+  if (!handler) throw new Error(No handler for assigned_agent="${agentName}");
 
   await pb.collection("tasks").update(task.id, { status: "in_progress" });
 
@@ -3229,7 +2947,7 @@ async function handleFileRequest(url, res) {
 }
 
 async function handleRequest(req, res) {
-  const url = new URL(req.url || "/", `http://${req.headers.host}`);
+  const url = new URL(req.url || "/", http://${req.headers.host});
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -3312,7 +3030,7 @@ async function main() {
   }
 
   if (gemini) {
-    console.log(`🟣 Gemini is configured and ready (${GEMINI_IMAGE_MODEL})`);
+    console.log(🟣 Gemini is configured and ready (${GEMINI_IMAGE_MODEL}));
   } else {
     console.log("⚠️ Gemini is not configured yet.");
   }
@@ -3325,7 +3043,7 @@ async function main() {
   });
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🌐 HTTP server listening on port ${PORT}`);
+    console.log(🌐 HTTP server listening on port ${PORT});
   });
 
   setInterval(async () => {
