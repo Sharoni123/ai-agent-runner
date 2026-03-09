@@ -38,17 +38,17 @@ const gemini = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-// Background images: Imagen 3 = highest photorealistic quality
-const IMAGEN_MODEL =
-  process.env.IMAGEN_MODEL || "imagen-3.0-generate-002";
-
-// Banner composition (image-in → image-out with Hebrew text): Gemini 2.0 Flash
-const GEMINI_BANNER_MODEL =
-  process.env.GEMINI_BANNER_MODEL || "gemini-2.0-flash-exp-image-generation";
-
-// Legacy / fallback model (kept for any other Gemini calls)
+// All image generation uses gemini-3.1-flash-image-preview ("Nano Banana 2")
+// This is the confirmed working model on the v1beta API.
+// Override any of these via Railway env vars if needed.
 const GEMINI_IMAGE_MODEL =
-  process.env.GEMINI_IMAGE_MODEL || GEMINI_BANNER_MODEL;
+  process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
+
+const IMAGEN_MODEL =
+  process.env.IMAGEN_MODEL || GEMINI_IMAGE_MODEL;
+
+const GEMINI_BANNER_MODEL =
+  process.env.GEMINI_BANNER_MODEL || GEMINI_IMAGE_MODEL;
 
 let sharpModulePromise = null;
 function getSharp() {
@@ -1552,56 +1552,27 @@ async function generateImagesWithAI(task, related = {}) {
   for (const plan of plans) {
     console.log(`🖼️ Generating background image for ${plan.banner_name} via Imagen 3 (${plan.aspect_ratio})`);
 
-    // ── Use Imagen 3 for maximum photorealistic quality ──
-    // Imagen 3 uses generateImages(), not generateContent()
     let imageBase64 = null;
     let imageMimeType = "image/png";
 
-    try {
-      const imagenResponse = await gemini.models.generateImages({
-        model: IMAGEN_MODEL,
-        prompt: plan.prompt,
-        config: {
-          numberOfImages: 1,
+    // generateContent with IMAGE modality — confirmed working on v1beta
+    const bgResponse = await gemini.models.generateContent({
+      model: GEMINI_IMAGE_MODEL,
+      contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
+      config: {
+        responseModalities: ["IMAGE"],
+        imageConfig: {
           aspectRatio: plan.aspect_ratio,
-          outputMimeType: "image/jpeg",
-          personGeneration: "dont_allow",
-          safetyFilterLevel: "block_only_high",
         },
-      });
-      const generatedImg = imagenResponse?.generatedImages?.[0];
-      const imgBytes = generatedImg?.image?.imageBytes;
-      if (imgBytes) {
-        // imageBytes may be a base64 string or Uint8Array depending on SDK version
-        imageBase64 = typeof imgBytes === "string"
-          ? imgBytes
-          : Buffer.from(imgBytes).toString("base64");
-        imageMimeType = "image/jpeg";
-        console.log(`✅ Imagen 3 succeeded for ${plan.banner_name}`);
-      } else {
-        throw new Error("Imagen 3 returned no imageBytes");
-      }
-    } catch (imagenErr) {
-      // Fallback to Gemini Flash if Imagen 3 fails (quota, unsupported aspect ratio, etc.)
-      console.warn(`⚠️ Imagen 3 failed for ${plan.banner_name}: ${imagenErr?.message || imagenErr}. Falling back to Gemini Flash.`);
-      const geminiResponse = await gemini.models.generateContent({
-        model: GEMINI_BANNER_MODEL,
-        contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
-        config: {
-          responseModalities: ["IMAGE"],
-          imageConfig: {
-            aspectRatio: plan.aspect_ratio,
-          },
-        },
-      });
-      const fallbackImages = extractGeminiInlineImages(geminiResponse);
-      if (!fallbackImages[0]?.data) {
-        throw new Error(`Both Imagen 3 and Gemini Flash failed for ${plan.banner_name}`);
-      }
-      imageBase64 = fallbackImages[0].data;
-      imageMimeType = fallbackImages[0].mime_type || "image/png";
-      console.log(`⚠️ Used Gemini Flash fallback for ${plan.banner_name}`);
+      },
+    });
+    const bgImages = extractGeminiInlineImages(bgResponse);
+    if (!bgImages[0]?.data) {
+      throw new Error(`Gemini returned no image for background ${plan.banner_name}`);
     }
+    imageBase64 = bgImages[0].data;
+    imageMimeType = bgImages[0].mime_type || "image/png";
+    console.log(`✅ Background generated for ${plan.banner_name}`);
 
     const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}`;
     const saved = await saveGeneratedImageToPublic({
