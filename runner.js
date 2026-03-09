@@ -38,8 +38,17 @@ const gemini = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
+// Background images: Imagen 3 = highest photorealistic quality
+const IMAGEN_MODEL =
+  process.env.IMAGEN_MODEL || "imagen-3.0-generate-002";
+
+// Banner composition (image-in → image-out with Hebrew text): Gemini 2.0 Flash
+const GEMINI_BANNER_MODEL =
+  process.env.GEMINI_BANNER_MODEL || "gemini-2.0-flash-exp-image-generation";
+
+// Legacy / fallback model (kept for any other Gemini calls)
 const GEMINI_IMAGE_MODEL =
-  process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
+  process.env.GEMINI_IMAGE_MODEL || GEMINI_BANNER_MODEL;
 
 let sharpModulePromise = null;
 function getSharp() {
@@ -1491,12 +1500,16 @@ async function generateImagesWithAI(task, related = {}) {
             prompt: [
               normalizeText(
                 banner.image_prompt,
-                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+                `aerial photorealistic render of luxury residential real estate towers near the Israeli coast at golden hour dusk, cinematic lighting`
               ),
-              "Create a premium commercial real-estate advertising image.",
-              "High-end, photorealistic, polished marketing composition.",
-              "No text, no letters, no numbers, no watermark, no logo, no signage in the generated image.",
-              "The result must work as a background image for a Hebrew banner ad.",
+              "Style: premium Israeli real estate advertising photography.",
+              "Ultra-high-resolution, photorealistic or architectural CGI render.",
+              "Lighting: warm golden hour or dramatic dusk sky — deep blue-purple gradient sky, city lights beginning to glow.",
+              "Composition: slightly aerial or eye-level, showcasing modern residential towers, manicured landscaping, sea or city views.",
+              "Mood: aspirational, luxurious, premium investment opportunity.",
+              "Technical: sharp focus, no motion blur, rich contrast, cinematic color grading.",
+              "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
+              "The image will be used as a background for a Hebrew real estate banner advertisement.",
             ].join(" "),
           };
         })
@@ -1512,12 +1525,16 @@ async function generateImagesWithAI(task, related = {}) {
             prompt: [
               normalizeText(
                 prompt,
-                `${briefTitle} בסגנון שיווקי, נקי, יוקרתי ומסחרי`
+                `aerial photorealistic render of luxury residential real estate towers near the Israeli coast at golden hour dusk, cinematic lighting`
               ),
-              "Create a premium commercial real-estate advertising image.",
-              "High-end, photorealistic, polished marketing composition.",
-              "No text, no letters, no numbers, no watermark, no logo, no signage in the generated image.",
-              "The result must work as a background image for a Hebrew banner ad.",
+              "Style: premium Israeli real estate advertising photography.",
+              "Ultra-high-resolution, photorealistic or architectural CGI render.",
+              "Lighting: warm golden hour or dramatic dusk sky — deep blue-purple gradient sky, city lights beginning to glow.",
+              "Composition: slightly aerial or eye-level, showcasing modern residential towers, manicured landscaping, sea or city views.",
+              "Mood: aspirational, luxurious, premium investment opportunity.",
+              "Technical: sharp focus, no motion blur, rich contrast, cinematic color grading.",
+              "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
+              "The image will be used as a background for a Hebrew real estate banner advertisement.",
             ].join(" "),
           };
         });
@@ -1533,33 +1550,65 @@ async function generateImagesWithAI(task, related = {}) {
 
   const generated_images = [];
   for (const plan of plans) {
-    console.log(`🖼️ Generating image for ${plan.banner_name} (${plan.aspect_ratio})`);
-    const response = await gemini.models.generateContent({
-      model: GEMINI_IMAGE_MODEL,
-      contents: plan.prompt,
-      config: {
-        responseModalities: ["IMAGE"],
-        imageConfig: {
+    console.log(`🖼️ Generating background image for ${plan.banner_name} via Imagen 3 (${plan.aspect_ratio})`);
+
+    // ── Use Imagen 3 for maximum photorealistic quality ──
+    // Imagen 3 uses generateImages(), not generateContent()
+    let imageBase64 = null;
+    let imageMimeType = "image/png";
+
+    try {
+      const imagenResponse = await gemini.models.generateImages({
+        model: IMAGEN_MODEL,
+        prompt: plan.prompt,
+        config: {
+          numberOfImages: 1,
           aspectRatio: plan.aspect_ratio,
-          imageSize: plan.image_size,
+          outputMimeType: "image/jpeg",
+          personGeneration: "dont_allow",
+          safetyFilterLevel: "block_only_high",
         },
-      },
-    });
-    const images = extractGeminiInlineImages(response);
-    const firstImage = images[0];
-    if (!firstImage?.data) {
-      throw new Error(
-        `Gemini image generation returned no inline image for ${plan.banner_name}`
-      );
+      });
+      const generatedImg = imagenResponse?.generatedImages?.[0];
+      const imgBytes = generatedImg?.image?.imageBytes;
+      if (imgBytes) {
+        // imageBytes may be a base64 string or Uint8Array depending on SDK version
+        imageBase64 = typeof imgBytes === "string"
+          ? imgBytes
+          : Buffer.from(imgBytes).toString("base64");
+        imageMimeType = "image/jpeg";
+        console.log(`✅ Imagen 3 succeeded for ${plan.banner_name}`);
+      } else {
+        throw new Error("Imagen 3 returned no imageBytes");
+      }
+    } catch (imagenErr) {
+      // Fallback to Gemini Flash if Imagen 3 fails (quota, unsupported aspect ratio, etc.)
+      console.warn(`⚠️ Imagen 3 failed for ${plan.banner_name}: ${imagenErr?.message || imagenErr}. Falling back to Gemini Flash.`);
+      const geminiResponse = await gemini.models.generateContent({
+        model: GEMINI_BANNER_MODEL,
+        contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
+        config: {
+          responseModalities: ["IMAGE"],
+          imageConfig: {
+            aspectRatio: plan.aspect_ratio,
+          },
+        },
+      });
+      const fallbackImages = extractGeminiInlineImages(geminiResponse);
+      if (!fallbackImages[0]?.data) {
+        throw new Error(`Both Imagen 3 and Gemini Flash failed for ${plan.banner_name}`);
+      }
+      imageBase64 = fallbackImages[0].data;
+      imageMimeType = fallbackImages[0].mime_type || "image/png";
+      console.log(`⚠️ Used Gemini Flash fallback for ${plan.banner_name}`);
     }
-    const fileBase = `${slugify(briefTitle)}-${slugify(
-      plan.banner_name
-    )}-${randomUUID()}`;
+
+    const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}`;
     const saved = await saveGeneratedImageToPublic({
       subdir: "generated-images",
       filenameBase: fileBase,
-      base64: firstImage.data,
-      mimeType: firstImage.mime_type,
+      base64: imageBase64,
+      mimeType: imageMimeType,
       targetWidth: plan.output_width,
       targetHeight: plan.output_height,
     });
@@ -1571,14 +1620,14 @@ async function generateImagesWithAI(task, related = {}) {
       output_width: plan.output_width,
       output_height: plan.output_height,
       prompt: plan.prompt,
-      mime_type: firstImage.mime_type,
+      mime_type: imageMimeType,
       generation_status: "generated",
       has_image_data: true,
       image_public_url: saved.public_url,
       image_file_path: saved.file_path,
       image_relative_path: saved.relative_path,
-      generator: "gemini",
-      generator_model: GEMINI_IMAGE_MODEL,
+      generator: "imagen3",
+      generator_model: IMAGEN_MODEL,
     });
   }
 
@@ -2070,54 +2119,97 @@ function buildBannerGeminiPrompt({ banner, width, height, briefTitle, hasBackgro
   const isVertical  = height > width * 1.2;
   const isLandscape = width  > height * 1.2;
 
-  const layoutHint = isVertical
-    ? "vertical story format (9:16). Headline at the top third, CTA button near the bottom."
+  // Layout-specific instructions matching the reference banner style
+  const layoutGuide = isVertical
+    ? `LAYOUT — Vertical Story (${width}×${height}px, 9:16):
+• Top 45%: dark gradient overlay (deep navy/black, 85% opacity). All text goes here.
+• Headline: top-center, large bold text.
+• Subheadline: below headline, smaller.
+• Middle 45%: the real estate photo shows through clearly — this is the hero visual.
+• Bottom 20%: dark band with gold CTA button centered. Disclaimer below button.`
     : isLandscape
-    ? "wide landscape format (16:9). Headline on the right side (RTL), CTA button on the right bottom."
-    : "square format (1:1). Headline in the upper area, CTA button at the bottom.";
+    ? `LAYOUT — Landscape Display (${width}×${height}px, 16:9):
+• Left ~55%: real estate photo visible (hero visual).
+• Right ~45%: dark gradient panel (deep navy, 90% opacity). All text right-aligned here.
+• Top of right panel: headline (large, bold).
+• Middle of right panel: subheadline.
+• Bottom of right panel: gold CTA button, then disclaimer tiny below.`
+    : `LAYOUT — Square (${width}×${height}px, 1:1):
+• Top 40%: dark gradient overlay (deep navy/black, 85-90% opacity). All text here.
+• Headline: near top, bold, centered or right-aligned.
+• Subheadline: below headline, smaller weight.
+• Middle 45%: real estate photo shows through clearly.
+• Bottom 15%: dark band, gold CTA button centered. Disclaimer below button.`;
 
-  const parts = [];
+  const styleGuide = `
+═══ VISUAL STYLE — MATCH THIS EXACTLY ═══
+Reference style: premium Israeli real estate marketing banners (like Mivtachim / Pras Hamachir style).
 
-  if (hasBackground) {
-    parts.push(
-      "You are given a real estate background photo.",
-      "Your task: produce a COMPLETE, print-ready marketing banner by compositing professional Hebrew text and UI elements directly onto this background.",
-      "Do NOT describe the result — generate the actual finished image."
-    );
-  } else {
-    parts.push(
-      `Create a complete, print-ready real estate marketing banner for the campaign: "${briefTitle}".`,
-      "Use a premium photorealistic background: modern building exterior, luxury interior, or aerial city view.",
-      "Do NOT describe the result — generate the actual finished image."
-    );
-  }
+TYPOGRAPHY:
+• HEADLINE: Very large (dominant). Bold weight. Color: bright gold/yellow (#D4A017 or #E8B84B) OR pure white. 
+  If the headline contains a price or key number, make that number EXTRA large and gold metallic.
+• SUBHEADLINE: Medium size, normal weight. Color: white (#FFFFFF) or light silver.
+• CTA BUTTON: Wide rounded-pill shape. Gold metallic gradient fill (from #C8960C to #F0C040). 
+  Dark navy text inside (#0A1628). Bold. Centered text. Subtle drop shadow.
+• DISCLAIMER: Very small, 70% white opacity, bottom of banner.
 
-  parts.push(
+OVERLAY & DEPTH:
+• Apply a strong dark gradient overlay on the top portion so headline text pops against any background.
+• The gradient should go from near-black (top, 85-90% opacity) fading to transparent (middle), 
+  revealing the photorealistic building/city background in the lower portion.
+• The background photo must be clearly visible in at least 40% of the banner — it is the hero visual.
+
+GOLD ACCENTS:
+• The overall palette is: deep navy background tones + gold/yellow text + white secondary text + gold CTA.
+• This creates the premium "gold on dark" real estate advertisement look.
+• Optional: a gold seal/badge element in one corner if there is a key selling point to highlight.
+
+HEBREW TEXT RENDERING:
+• All text is in Hebrew, reading RIGHT TO LEFT.
+• Text must be centered or right-aligned.
+• Hebrew glyphs must be fully formed and correct — no broken characters, no Latin substitution.
+• Font: clean bold sans-serif (Noto Sans Hebrew, Arial, or similar — bold weight).`;
+
+  const textSpec = `
+═══ TEXT CONTENT TO RENDER ═══
+HEADLINE (large bold gold or white):
+${banner.headline}
+
+SUBHEADLINE (medium white, below headline):
+${banner.subheadline}
+
+CTA BUTTON (gold pill button, centered/right):
+${banner.cta}
+
+DISCLAIMER (tiny, bottom, semi-transparent white):
+${banner.disclaimer}`;
+
+  const backgroundInstruction = hasBackground
+    ? `\n═══ BACKGROUND IMAGE ═══\nA real estate background photo is provided. Use it as the hero visual in the lower/clear portion of the banner. Apply the dark gradient overlay on top as specified above.`
+    : `\n═══ BACKGROUND ═══\nGenerate a premium photorealistic real estate background: aerial or eye-level view of modern luxury residential towers at golden hour / dramatic dusk. Deep blue-purple sky, warm building lights, green landscaping. Ultra-sharp, cinematic. No text in the background image.`;
+
+  const logoInstruction = banner.logo_url
+    ? `\n• Reserve a 180×55px area at TOP-LEFT for a brand logo (leave it empty/dark — do not place any text there).`
+    : "";
+
+  return [
+    hasBackground
+      ? "You are given a real estate background photo. Produce a COMPLETE, print-ready Hebrew real estate marketing banner by overlaying the text and UI elements described below onto this photo."
+      : `Create a COMPLETE, print-ready Hebrew real estate marketing banner for the campaign: "${briefTitle}".`,
+    "Generate the actual finished image — do NOT describe it or return text.",
     "",
-    `Canvas size: ${width} × ${height} px  |  Layout: ${layoutHint}`,
-    "Language: Hebrew (RTL — all text flows RIGHT to LEFT, text anchored to the right edge).",
+    layoutGuide,
+    styleGuide,
+    textSpec,
+    backgroundInstruction,
+    logoInstruction,
     "",
-    "═══ TEXT ELEMENTS TO RENDER ═══",
-    `HEADLINE  (very large, bold white text, right-aligned):  ${banner.headline}`,
-    `SUBHEADLINE  (medium weight, light-blue or white, right-aligned, below headline):  ${banner.subheadline}`,
-    `CTA BUTTON  (rounded pill, solid teal/green #20C997, dark text inside, right-aligned):  ${banner.cta}`,
-    `DISCLAIMER  (tiny text, semi-transparent white, bottom-right corner):  ${banner.disclaimer}`,
-    "",
-    "═══ DESIGN RULES ═══",
-    "• Apply a dark gradient overlay (top 20% opacity → bottom 65% opacity) so all text is legible.",
-    "• Rounded glass-morphism card behind headline + subheadline area (subtle, semi-transparent dark).",
-    "• Hebrew characters must be fully formed, correct glyphs, right-to-left reading order.",
-    "• Visual hierarchy: HEADLINE dominates, CTA is the second focal point.",
-    "• Font style: clean sans-serif (like Arial, Noto Sans Hebrew, or similar modern face).",
-    "• Color palette: deep navy #071F43, white #FFFFFF, teal accent #20C997.",
-    "• No watermarks, no stock-photo logos, no English text unless it was in the Hebrew original.",
-    banner.logo_url
-      ? "• Leave a 180×60 px reserved area in the TOP-LEFT corner for the brand logo (do not put text there)."
-      : "",
-    "• Output must look like a polished, production-ready social-media ad.",
-  );
-
-  return parts.filter(Boolean).join("\n");
+    "FINAL REQUIREMENTS:",
+    "• Output must look identical in quality to a professional paid real estate Facebook/Instagram ad.",
+    "• No English text unless it appeared in the Hebrew content above.",
+    "• No watermarks, no stock-photo UI overlays, no lorem ipsum.",
+    "• The banner must be production-ready and visually stunning.",
+  ].filter(Boolean).join("\n");
 }
 
 // ─── NEW: Compose a full banner using Gemini (Hebrew text baked in) ───────────
@@ -2179,18 +2271,17 @@ async function composeBannerWithGemini({ briefTitle, banner, generatedImages, as
   const contents = [{ role: "user", parts }];
 
   console.log(
-    `🎨 Composing banner "${banner.name}" (${banner.size}) via Gemini — ` +
-    `background: ${backgroundBase64 ? "loaded ✓" : "none, generating from scratch"}`
+    `🎨 Composing banner "${banner.name}" (${banner.size}) via Gemini 2.0 Flash — ` +
+    `background: ${backgroundBase64 ? "Imagen 3 photo loaded ✓" : "none, generating from scratch"}`
   );
 
   const response = await gemini.models.generateContent({
-    model: GEMINI_IMAGE_MODEL,
+    model: GEMINI_BANNER_MODEL,
     contents,
     config: {
       responseModalities: ["IMAGE"],
       imageConfig: {
         aspectRatio: imageConfig.aspect_ratio,
-        imageSize: imageConfig.image_size,
       },
     },
   });
@@ -2229,8 +2320,8 @@ async function composeBannerWithGemini({ briefTitle, banner, generatedImages, as
     relative_path:         saved.relative_path,
     public_url:            saved.public_url,
     composition_status:    "composed",
-    generator:             "gemini",
-    generator_model:       GEMINI_IMAGE_MODEL,
+    generator:             "gemini_2_flash",
+    generator_model:       GEMINI_BANNER_MODEL,
     used_background_image: !!backgroundBase64,
   };
 }
@@ -2923,6 +3014,8 @@ async function handleRequest(req, res) {
       ai_enabled: Boolean(openai || gemini),
       openai_enabled: Boolean(openai),
       gemini_enabled: Boolean(gemini),
+      imagen_model: gemini ? IMAGEN_MODEL : null,
+      gemini_banner_model: gemini ? GEMINI_BANNER_MODEL : null,
       gemini_image_model: gemini ? GEMINI_IMAGE_MODEL : null,
       public_dir: PUBLIC_DIR,
       public_asset_base_url: PUBLIC_ASSET_BASE_URL || null,
@@ -2973,7 +3066,9 @@ async function main() {
     console.log("⚠️ OpenAI is not configured. Copywriter will use fallback outputs.");
   }
   if (gemini) {
-    console.log(`🟣 Gemini is configured and ready (${GEMINI_IMAGE_MODEL})`);
+    console.log(`🟣 Gemini is configured and ready`);
+    console.log(`   📸 Background images: ${IMAGEN_MODEL}`);
+    console.log(`   🎨 Banner composition: ${GEMINI_BANNER_MODEL}`);
   } else {
     console.log("⚠️ Gemini is not configured yet.");
   }
