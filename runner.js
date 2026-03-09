@@ -3535,7 +3535,7 @@ async function runQA(task) {
 
   const copyTask    = find("article") || find("ad_copy");
   const imageTask   = find("background_images");
-  const bannerTask  = find("banner_set");
+  const bannerTask  = find("banner_set") || find("banner_compose");
   const lpTask      = find("landing_page");
 
   const copyOutput   = copyTask?.output_data   || null;
@@ -3561,8 +3561,8 @@ async function runQA(task) {
   flag("images_urls",    "All images have public URLs", goodImages.length === generatedImages.length && generatedImages.length > 0, "");
 
   // Banners
-  const banners = bannerOutput?.banners || bannerOutput?.final_banners || [];
-  const goodBanners = banners.filter((b) => b.status === "composed" || b.status === "generated" || b.image_public_url || b.composed_image_url);
+  const banners = bannerOutput?.composed_banners || bannerOutput?.banners || bannerOutput?.final_banners || [];
+  const goodBanners = banners.filter((b) => b.composition_status === "composed" || b.status === "composed" || b.status === "generated" || b.image_public_url || b.composed_image_url);
   flag("banners_exist",  "Banner task completed",      Boolean(bannerTask), bannerTask ? "" : "No done banner task found");
   flag("banners_count",  "At least 1 banner composed", goodBanners.length >= 1, `${goodBanners.length} banner(s) found`);
 
