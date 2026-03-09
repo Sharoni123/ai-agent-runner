@@ -3376,7 +3376,7 @@ async function runLandingPageBuilder(task) {
   // ── 2. Collect images (sibling-generated first, then asset URLs) ───────────
   const siblingImages = Array.isArray(imageOutput.generated_images)
     ? imageOutput.generated_images
-        .map((img) => img.public_url || img.url || "")
+        .map((img) => img.image_public_url || img.public_url || img.url || "")
         .filter(Boolean)
     : [];
   const assetImages = assets.images || [];
