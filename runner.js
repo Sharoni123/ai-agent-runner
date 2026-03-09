@@ -3583,18 +3583,12 @@ async function runQA(task) {
 
   // ── Gemini vision: Hebrew text check on banner images ─────────────────────
   let banner_hebrew_review = null;
-  const bannerImageUrls = composedBanners
-    .filter((b) => b.composition_status === "composed" && (b.public_url || b.image_public_url))
-    .map((b) => b.public_url || b.image_public_url)
-    .slice(0, 3); // max 3 banners
-
-  // Also check composed banner images from the output (Gemini-composed ones have public_url)
-  const allComposedUrls = (bannerOutput?.composed_banners || [])
-    .filter((b) => b.public_url || b.image_public_url)
-    .map((b) => b.public_url || b.image_public_url)
+  const urlsToCheck = (bannerOutput?.composed_banners || bannerOutput?.final_banners || [])
+    .map((b) => b.public_url || b.image_public_url || b.composed_url || "")
+    .filter(Boolean)
     .slice(0, 3);
 
-  const urlsToCheck = [...new Set([...bannerImageUrls, ...allComposedUrls])].slice(0, 3);
+  console.log(`🔍 QA vision: bannerTask type=${bannerTask?.type}, composed_banners=${bannerOutput?.composed_banners?.length ?? "none"}, final_banners=${bannerOutput?.final_banners?.length ?? "none"}, urlsToCheck=${urlsToCheck.length}`);
 
   if (gemini && urlsToCheck.length > 0) {
     try {
