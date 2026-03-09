@@ -1527,13 +1527,21 @@ async function generateImagesWithAI(task, related = {}) {
     ].join(" ");
   };
 
+  // Stable vibe index by banner name — independent of array order
+  const VIBE_INDEX_BY_NAME = { square_main: 0, story_vertical: 1, landscape_display: 2 };
+  const getVibeIndex = (bannerName, fallbackIndex) => {
+    const key = normalizeText(bannerName).toLowerCase();
+    return VIBE_INDEX_BY_NAME[key] ?? fallbackIndex;
+  };
+
   let plans =
     bannerPlans.length > 0
       ? bannerPlans.map((banner, index) => {
           const requestedSize = normalizeText(banner.size, "1080x1080");
           const imageConfig = mapBannerSizeToGeminiImageConfig(requestedSize);
+          const name = normalizeText(banner.name, `banner_${index + 1}`);
           return {
-            banner_name: normalizeText(banner.name, `banner_${index + 1}`),
+            banner_name: name,
             requested_size: requestedSize,
             image_size: imageConfig.image_size,
             aspect_ratio: imageConfig.aspect_ratio,
@@ -1544,7 +1552,7 @@ async function generateImagesWithAI(task, related = {}) {
                 banner.image_prompt,
                 `photorealistic render of luxury residential real estate towers near the Israeli coast`
               ),
-              index
+              getVibeIndex(name, index)
             ),
           };
         })
@@ -1570,11 +1578,6 @@ async function generateImagesWithAI(task, related = {}) {
   if (!plans.length) {
     throw new Error("No image prompts found for image_generator");
   }
-
-  // לא מנסים בכלל לייצר landscape_display עם Gemini
-  plans = plans.filter(
-    (plan) => normalizeText(plan.banner_name).toLowerCase() !== "landscape_display"
-  );
 
   const generated_images = [];
   for (const plan of plans) {
@@ -1630,41 +1633,10 @@ async function generateImagesWithAI(task, related = {}) {
     });
   }
 
-  const squareMain = generated_images.find(
-    (img) =>
-      normalizeText(img.banner_name).toLowerCase() === "square_main" &&
-      img.generation_status === "generated" &&
-      img.has_image_data
-  );
-
-  if (squareMain) {
-    generated_images.push({
-      banner_name: "landscape_display",
-      requested_size: "1200x628",
-      image_size: squareMain.image_size,
-      aspect_ratio: "16:9",
-      output_width: 1200,
-      output_height: 628,
-      prompt: squareMain.prompt,
-      mime_type: squareMain.mime_type,
-      generation_status: "generated",
-      has_image_data: true,
-      image_public_url: squareMain.image_public_url,
-      image_file_path: squareMain.image_file_path,
-      image_relative_path: squareMain.image_relative_path,
-      generator: "gemini",
-      generator_model: GEMINI_IMAGE_MODEL,
-      fallback_from_banner: "square_main",
-      fallback_reason: "landscape_display intentionally reused square_main image",
-    });
-  } else {
-    throw new Error("square_main image was not generated, cannot create landscape fallback");
-  }
-
   return {
     ok: true,
     ai_generated: true,
-    note: "image_generator ai via gemini (landscape reused from square_main)",
+    note: "image_generator ai via gemini — 3 unique images with distinct vibes",
     brief_title: briefTitle,
     planner_brief: getTaskInput(task).planner_brief ?? null,
     assets,
