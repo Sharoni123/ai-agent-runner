@@ -2184,8 +2184,9 @@ ${banner.disclaimer}`;
 }
 
 // ─── NEW: Compose a full banner using Gemini (Hebrew text baked in) ───────────
-async function composeBannerWithGemini({ briefTitle, banner, generatedImages, assets }) {
+async function composeBannerWithGemini({ briefTitle, banner, generatedImages, assets, modelOverride }) {
   if (!gemini) throw new Error("GEMINI_API_KEY is missing — cannot compose banner with Gemini");
+  const effectiveModel = modelOverride || GEMINI_BANNER_MODEL;
 
   const { width, height } = parseBannerDimensions(banner.size);
   const imageConfig      = mapBannerSizeToGeminiImageConfig(banner.size);
@@ -2242,12 +2243,12 @@ async function composeBannerWithGemini({ briefTitle, banner, generatedImages, as
   const contents = [{ role: "user", parts }];
 
   console.log(
-    `🎨 Composing banner "${banner.name}" (${banner.size}) via Gemini 2.0 Flash — ` +
+    `🎨 Composing banner "${banner.name}" (${banner.size}) via ${effectiveModel} — ` +
     `background: ${backgroundBase64 ? "Imagen 3 photo loaded ✓" : "none, generating from scratch"}`
   );
 
   const response = await gemini.models.generateContent({
-    model: GEMINI_BANNER_MODEL,
+    model: effectiveModel,
     contents,
     config: {
       responseModalities: ["IMAGE"],
@@ -2291,8 +2292,8 @@ async function composeBannerWithGemini({ briefTitle, banner, generatedImages, as
     relative_path:         saved.relative_path,
     public_url:            saved.public_url,
     composition_status:    "composed",
-    generator:             "gemini_2_flash",
-    generator_model:       GEMINI_BANNER_MODEL,
+    generator:             "gemini",
+    generator_model:       effectiveModel,
     used_background_image: !!backgroundBase64,
   };
 }
@@ -2346,73 +2347,87 @@ async function runBannerComposer(task) {
 
   const composed_banners = [];
 
+  const FALLBACK_GEMINI_MODEL = "gemini-1.5-flash";
+
   for (const banner of finalBanners) {
     const bannerName = normalizeText(banner.name);
+    let success = false;
 
-    // ── Primary path: Gemini full-banner generation with Hebrew text ──
-    try {
-      const composed = await composeBannerWithGemini({
-        briefTitle,
-        banner,
-        generatedImages,
-        assets,
-      });
-      composed_banners.push(composed);
-      console.log(`✅ Banner composed by Gemini: ${bannerName}`);
-      continue;
-    } catch (geminiErr) {
-      console.error(
-        `⚠️ Gemini banner composition failed for "${bannerName}", trying sharp fallback:`,
-        geminiErr?.message || geminiErr
-      );
+    // ── Tier 1: Primary Gemini model, up to 3 attempts ──────────────────────
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          const delayMs = attempt === 2 ? 15000 : 30000;
+          console.log(`🔄 Retrying primary Gemini for "${bannerName}" (attempt ${attempt}/3) after ${delayMs/1000}s...`);
+          await new Promise(r => setTimeout(r, delayMs));
+        }
+        const composed = await composeBannerWithGemini({ briefTitle, banner, generatedImages, assets });
+        composed_banners.push(composed);
+        console.log(`✅ Banner composed by primary Gemini: ${bannerName} (attempt ${attempt})`);
+        success = true;
+        if (banner !== finalBanners[finalBanners.length - 1]) await new Promise(r => setTimeout(r, 12000));
+        break;
+      } catch (err) {
+        console.error(`⚠️ Primary Gemini attempt ${attempt}/3 failed for "${bannerName}":`, err?.message || err);
+      }
     }
+    if (success) continue;
 
-    // ── Fallback path: original sharp + SVG overlay ──
-    try {
-      const composed = await composeBannerPng({
-        briefTitle,
-        banner,
-        generatedImages,
-        assets,
-      });
-      composed_banners.push({ ...composed, generator: "sharp_svg_fallback" });
-      console.log(`⚠️ Banner composed via sharp fallback: ${bannerName}`);
-    } catch (sharpErr) {
-      console.error(
-        `❌ Sharp fallback also failed for "${bannerName}":`,
-        sharpErr?.message || sharpErr
-      );
-      composed_banners.push({
-        name:                 bannerName,
-        size:                 normalizeText(banner.size),
-        headline:             normalizeText(banner.headline),
-        subheadline:          normalizeText(banner.subheadline),
-        cta:                  normalizeText(banner.cta),
-        disclaimer:           normalizeText(banner.disclaimer),
-        background_image_ref: normalizeText(banner.background_image_ref),
-        file_name:            "",
-        file_path:            "",
-        relative_path:        "",
-        public_url:           "",
-        composition_status:   "failed",
-        error:                String(sharpErr?.message || sharpErr),
-      });
+    // ── Tier 2: Fallback Gemini model (gemini-1.5-flash), up to 2 attempts ──
+    console.log(`🔁 Switching to fallback model (${FALLBACK_GEMINI_MODEL}) for "${bannerName}"...`);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (attempt > 1) {
+          console.log(`🔄 Retrying fallback model for "${bannerName}" (attempt ${attempt}/2) after 20s...`);
+          await new Promise(r => setTimeout(r, 20000));
+        }
+        const composed = await composeBannerWithGemini({
+          briefTitle, banner, generatedImages, assets,
+          modelOverride: FALLBACK_GEMINI_MODEL,
+        });
+        composed_banners.push({ ...composed, generator: "gemini_fallback_model" });
+        console.log(`✅ Banner composed by fallback Gemini model: ${bannerName}`);
+        success = true;
+        if (banner !== finalBanners[finalBanners.length - 1]) await new Promise(r => setTimeout(r, 12000));
+        break;
+      } catch (err) {
+        console.error(`⚠️ Fallback Gemini attempt ${attempt}/2 failed for "${bannerName}":`, err?.message || err);
+      }
     }
+    if (success) continue;
+
+    // ── Tier 3: Mark as needs_retry — no ugly fallback ───────────────────────
+    console.error(`❌ All Gemini attempts exhausted for "${bannerName}" — marking as needs_retry`);
+    composed_banners.push({
+      name:                 bannerName,
+      size:                 normalizeText(banner.size),
+      headline:             normalizeText(banner.headline),
+      subheadline:          normalizeText(banner.subheadline),
+      cta:                  normalizeText(banner.cta),
+      disclaimer:           normalizeText(banner.disclaimer),
+      background_image_ref: normalizeText(banner.background_image_ref),
+      file_name:            "",
+      file_path:            "",
+      relative_path:        "",
+      public_url:           "",
+      composition_status:   "needs_retry",
+      generator:            "none",
+      error:                "All Gemini attempts failed — re-run banner_composer to retry",
+    });
   }
 
-  const composedCount = composed_banners.filter(
-    (b) => b.composition_status === "composed"
-  ).length;
+  const composedCount = composed_banners.filter(b => b.composition_status === "composed").length;
+  const needsRetryCount = composed_banners.filter(b => b.composition_status === "needs_retry").length;
 
   return {
     ok:           true,
     ai_generated: composedCount > 0,
     note:
-      composedCount === composed_banners.length
+      needsRetryCount > 0
+        ? `banner_composer: ${composedCount}/${composed_banners.length} composed, ${needsRetryCount} need retry — re-run banner_composer`
+        : composedCount === composed_banners.length
         ? "banner_composer rendered all banners via Gemini"
-        : composedCount > 0
-        ? `banner_composer partial success (${composedCount}/${composed_banners.length})`
-        : "banner_composer: no banners composed",
+        : `banner_composer partial success (${composedCount}/${composed_banners.length})`,
     brief_title:    briefTitle,
     planner_brief:  getTaskInput(task).planner_brief ?? null,
     related_sources: {
