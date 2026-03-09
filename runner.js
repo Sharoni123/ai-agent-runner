@@ -3732,6 +3732,26 @@ async function handleRequest(req, res) {
     await handleFileRequest(url, res);
     return;
   }
+  if (req.method === "GET" && url.pathname.startsWith("/pages/")) {
+    const fileName = path.basename(url.pathname);
+    const absPath = path.resolve(PAGES_DIR, fileName);
+    if (!absPath.startsWith(PAGES_DIR) || !fileName.endsWith(".html")) {
+      sendJson(res, 403, { ok: false, error: "Forbidden" });
+      return;
+    }
+    try {
+      const fileBuffer = await fs.readFile(absPath);
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=60",
+      });
+      res.end(fileBuffer);
+    } catch {
+      sendJson(res, 404, { ok: false, error: "Page not found" });
+    }
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, {
       ok: true,
