@@ -260,6 +260,56 @@ function getAssets(task) {
   };
 }
 
+// Fetch client assets from PocketBase client_assets collection
+async function getClientAssets(task) {
+  const base = getAssets(task);
+  try {
+    // Find goal_id via campaign_id on the task
+    const campaignId = task.campaign_id || task.source_task_id || "";
+    if (!campaignId) return base;
+
+    // Look up the goal that has this campaign_id
+    const goals = await pb.collection("goals").getFullList({
+      filter: `campaign_id = "${campaignId}"`,
+    }).catch(() => []);
+
+    const goalId = goals[0]?.id;
+    if (!goalId) return base;
+
+    // Fetch assets for this goal
+    const assetRecords = await pb.collection("client_assets").getFullList({
+      filter: `goal_id = "${goalId}"`,
+    }).catch(() => []);
+
+    if (!assetRecords.length) return base;
+
+    const pbUrl = process.env.POCKETBASE_URL || "";
+    const logoUrls = assetRecords
+      .filter(a => a.asset_type === "logo" && a.file)
+      .map(a => `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`);
+
+    const photoUrls = assetRecords
+      .filter(a => a.asset_type === "photo" && a.file)
+      .map(a => `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`);
+
+    console.log(`📎 Client assets loaded — ${logoUrls.length} logos, ${photoUrls.length} photos`);
+
+    return {
+      logos:       [...logoUrls, ...base.logos],
+      images:      [...photoUrls, ...base.images],
+      inspiration: base.inspiration,
+      all:         [...logoUrls, ...photoUrls, ...base.all],
+      hasLogo:     logoUrls.length > 0,
+      hasPhotos:   photoUrls.length > 0,
+      logoUrl:     logoUrls[0] || null,
+      photoUrls,
+    };
+  } catch (e) {
+    console.warn("⚠️ getClientAssets failed, using task assets only:", e?.message);
+    return base;
+  }
+}
+
 function escapeHtml(str) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -1477,7 +1527,7 @@ async function generateImagesWithAI(task, related = {}) {
     throw new Error("GEMINI_API_KEY is missing");
   }
   const briefTitle = getBriefTitle(task);
-  const assets = getAssets(task);
+  const assets = await getClientAssets(task);
   const bannerOutput = related.bannerOutput || {};
   const visualOutput = related.visualOutput || {};
   const bannerPlans = Array.isArray(bannerOutput.banners)
@@ -1809,7 +1859,7 @@ function buildBannerRendererFallback(task, related = {}) {
 
 async function generateBannerSetWithAI(task, related = {}) {
   const briefTitle = getBriefTitle(task);
-  const assets = getAssets(task);
+  const assets = await getClientAssets(task);
   const visual = related.visualOutput || {};
   const ads = related.adOutput || {};
   const imageOutput = related.imageOutput || {};
@@ -2337,7 +2387,7 @@ async function runBannerComposer(task) {
   const imageOutput     = related.imageOutput;
   const finalBanners    = Array.isArray(bannerOutput.final_banners)    ? bannerOutput.final_banners    : [];
   const generatedImages = Array.isArray(imageOutput.generated_images)  ? imageOutput.generated_images  : [];
-  const assets          = getAssets(task);
+  const assets          = await getClientAssets(task);
   const briefTitle      = getBriefTitle(task);
 
   if (!finalBanners.length) {
@@ -3359,7 +3409,7 @@ async function runLandingPageBuilder(task) {
   const input = getTaskInput(task);
   const sourceTaskId = normalizeText(input.source_task_id, "");
   const briefTitle = getBriefTitle(task);
-  const assets = getAssets(task);
+  const assets = await getClientAssets(task);
 
   // ── 1. Gather sibling outputs ──────────────────────────────────────────────
   let siblings = [];
