@@ -1486,6 +1486,47 @@ async function generateImagesWithAI(task, related = {}) {
     ? bannerOutput.final_banners
     : [];
   const visualPrompts = pickArray(visualOutput.image_prompts);
+  // Three distinct visual vibes — applied by index so each image has a different look
+  const IMAGE_VIBES = [
+    {
+      label: "Golden Hour Aerial",
+      lighting: "Lighting: warm golden hour, sun just below the horizon, deep amber and orange sky with long shadows.",
+      composition: "Composition: wide aerial bird's-eye view from above, showing the full building complex, surrounding streets, greenery and sea horizon.",
+      mood: "Mood: grand, aspirational, epic scale — the project dominates the skyline.",
+      color: "Color grading: warm amber tones, rich contrast, sun-kissed highlights.",
+    },
+    {
+      label: "Twilight Street Level",
+      lighting: "Lighting: blue-hour twilight, sky is deep indigo-blue, building windows glowing warm yellow, exterior lighting on.",
+      composition: "Composition: eye-level pedestrian perspective from a wide boulevard, building facade filling the frame, lush palm trees framing the sides.",
+      mood: "Mood: intimate, inviting, modern urban luxury — like arriving home.",
+      color: "Color grading: cool blue shadows contrasted with warm interior window lights, cinematic.",
+    },
+    {
+      label: "Bright Morning Lifestyle",
+      lighting: "Lighting: bright morning sunlight, crystal-clear blue sky, sharp clean shadows, fresh daylight atmosphere.",
+      composition: "Composition: slight low-angle upward shot showing the tower's full height against blue sky, pool or garden terrace visible in foreground.",
+      mood: "Mood: fresh, optimistic, premium quality of life — a place to live well.",
+      color: "Color grading: clean bright whites, vivid sky blue, lush green landscaping, sharp and airy.",
+    },
+  ];
+
+  const buildImagePrompt = (basePrompt, index) => {
+    const vibe = IMAGE_VIBES[index % IMAGE_VIBES.length];
+    return [
+      basePrompt,
+      `Style: premium real estate advertising photography — ${vibe.label} look.`,
+      "Ultra-high-resolution, photorealistic or architectural CGI render.",
+      vibe.lighting,
+      vibe.composition,
+      vibe.mood,
+      vibe.color,
+      "Technical: sharp focus, no motion blur, rich contrast.",
+      "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
+      "The image will be used as a background for a real estate advertisement.",
+    ].join(" ");
+  };
+
   let plans =
     bannerPlans.length > 0
       ? bannerPlans.map((banner, index) => {
@@ -1498,20 +1539,13 @@ async function generateImagesWithAI(task, related = {}) {
             aspect_ratio: imageConfig.aspect_ratio,
             output_width: imageConfig.output_width,
             output_height: imageConfig.output_height,
-            prompt: [
+            prompt: buildImagePrompt(
               normalizeText(
                 banner.image_prompt,
-                `aerial photorealistic render of luxury residential real estate towers near the Israeli coast at golden hour dusk, cinematic lighting`
+                `photorealistic render of luxury residential real estate towers near the Israeli coast`
               ),
-              "Style: premium Israeli real estate advertising photography.",
-              "Ultra-high-resolution, photorealistic or architectural CGI render.",
-              "Lighting: warm golden hour or dramatic dusk sky — deep blue-purple gradient sky, city lights beginning to glow.",
-              "Composition: slightly aerial or eye-level, showcasing modern residential towers, manicured landscaping, sea or city views.",
-              "Mood: aspirational, luxurious, premium investment opportunity.",
-              "Technical: sharp focus, no motion blur, rich contrast, cinematic color grading.",
-              "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
-              "The image will be used as a background for a Hebrew real estate banner advertisement.",
-            ].join(" "),
+              index
+            ),
           };
         })
       : visualPrompts.map((prompt, index) => {
@@ -1523,20 +1557,13 @@ async function generateImagesWithAI(task, related = {}) {
             aspect_ratio: imageConfig.aspect_ratio,
             output_width: imageConfig.output_width,
             output_height: imageConfig.output_height,
-            prompt: [
+            prompt: buildImagePrompt(
               normalizeText(
                 prompt,
-                `aerial photorealistic render of luxury residential real estate towers near the Israeli coast at golden hour dusk, cinematic lighting`
+                `photorealistic render of luxury residential real estate towers near the Israeli coast`
               ),
-              "Style: premium Israeli real estate advertising photography.",
-              "Ultra-high-resolution, photorealistic or architectural CGI render.",
-              "Lighting: warm golden hour or dramatic dusk sky — deep blue-purple gradient sky, city lights beginning to glow.",
-              "Composition: slightly aerial or eye-level, showcasing modern residential towers, manicured landscaping, sea or city views.",
-              "Mood: aspirational, luxurious, premium investment opportunity.",
-              "Technical: sharp focus, no motion blur, rich contrast, cinematic color grading.",
-              "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
-              "The image will be used as a background for a Hebrew real estate banner advertisement.",
-            ].join(" "),
+              index
+            ),
           };
         });
 
