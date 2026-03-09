@@ -3516,6 +3516,127 @@ async function runLandingPageBuilder(task) {
   };
 }
 
+// ── QA Agent ──────────────────────────────────────────────────────────────────
+async function runQA(task) {
+  const input = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+  const briefTitle = getBriefTitle(task);
+
+  // Gather all sibling tasks
+  let siblings = [];
+  if (sourceTaskId) {
+    siblings = await listSiblingTasksForSourceTask(sourceTaskId);
+  }
+
+  const find = (type) =>
+    siblings.find(
+      (s) => normalizeText(s.type).toLowerCase() === type && normalizeText(s.status).toLowerCase() === "done"
+    );
+
+  const copyTask    = find("article") || find("ad_copy");
+  const imageTask   = find("background_images");
+  const bannerTask  = find("banner_set");
+  const lpTask      = find("landing_page");
+
+  const copyOutput   = copyTask?.output_data   || null;
+  const imageOutput  = imageTask?.output_data  || null;
+  const bannerOutput = bannerTask?.output_data || null;
+  const lpOutput     = lpTask?.output_data     || null;
+
+  // ── Structured checks ──────────────────────────────────────────────────────
+  const checks = [];
+  const flag = (id, label, passed, detail = "") =>
+    checks.push({ id, label, passed, detail });
+
+  // Copywriter
+  flag("copy_exists",    "Copy task completed",        Boolean(copyTask),   copyTask ? "" : "No done copywriter task found");
+  flag("copy_title",     "Page title present",         Boolean(copyOutput?.title || copyOutput?.page_title || copyOutput?.headlines?.length), "");
+  flag("copy_body",      "Body copy present",          Boolean(copyOutput?.article_text || copyOutput?.primary_texts?.length), "");
+
+  // Images
+  const generatedImages = imageOutput?.generated_images || [];
+  const goodImages = generatedImages.filter((img) => img.generation_status === "generated" && img.image_public_url);
+  flag("images_exist",   "Images task completed",      Boolean(imageTask),  imageTask ? "" : "No done image_generator task found");
+  flag("images_count",   "At least 2 images generated", goodImages.length >= 2, `${goodImages.length} image(s) generated`);
+  flag("images_urls",    "All images have public URLs", goodImages.length === generatedImages.length && generatedImages.length > 0, "");
+
+  // Banners
+  const banners = bannerOutput?.banners || bannerOutput?.final_banners || [];
+  const goodBanners = banners.filter((b) => b.status === "composed" || b.status === "generated" || b.image_public_url || b.composed_image_url);
+  flag("banners_exist",  "Banner task completed",      Boolean(bannerTask), bannerTask ? "" : "No done banner task found");
+  flag("banners_count",  "At least 1 banner composed", goodBanners.length >= 1, `${goodBanners.length} banner(s) found`);
+
+  // Landing page
+  const lp = lpOutput?.landing_page || null;
+  flag("lp_exists",      "Landing page task completed", Boolean(lpTask),    lpTask ? "" : "No done landing_page_builder task found");
+  flag("lp_url",         "Landing page has public URL", Boolean(lp?.public_url), lp?.public_url || "");
+  flag("lp_form",        "Lead form has fields",        (lp?.form_fields_count || 0) >= 2, `${lp?.form_fields_count || 0} form field(s)`);
+
+  const passed = checks.filter((c) => c.passed).length;
+  const failed = checks.filter((c) => !c.passed).length;
+  const score  = Math.round((passed / checks.length) * 100);
+
+  // ── AI narrative review ────────────────────────────────────────────────────
+  let ai_review = null;
+  if (openai && copyOutput) {
+    try {
+      const reviewPrompt = `You are a senior marketing QA reviewer for a real estate advertising agency.
+Review the following campaign outputs and provide a short, actionable QA report in Hebrew.
+
+Brief: ${briefTitle}
+
+Copy output summary:
+${JSON.stringify({ title: copyOutput.title || copyOutput.page_title, headlines: copyOutput.headlines, article_text: (copyOutput.article_text || "").slice(0, 400) }, null, 2)}
+
+Pipeline status:
+- Copywriter: ${copyTask ? "✅ done" : "❌ missing"}
+- Images: ${goodImages.length} generated
+- Banners: ${goodBanners.length} composed
+- Landing page: ${lp?.public_url ? "✅ built — " + lp.public_url : "❌ missing"}
+- QA score: ${score}/100 (${passed}/${checks.length} checks passed)
+
+Failed checks: ${checks.filter(c => !c.passed).map(c => c.label).join(", ") || "none"}
+
+Respond in Hebrew with:
+1. סיכום קצר (2-3 משפטים) של מצב הקמפיין
+2. בעיות שנמצאו (אם יש)
+3. המלצה: האם הקמפיין מוכן לפרסום?
+
+Be concise and direct.`;
+
+      const reviewResponse = await openai.responses.create({
+        model: "gpt-4o",
+        input: reviewPrompt,
+        max_output_tokens: 400,
+      });
+      ai_review = reviewResponse.output_text?.trim() || null;
+    } catch (e) {
+      console.warn("⚠️ QA AI review failed:", e?.message);
+    }
+  }
+
+  const approved = score >= 60 && Boolean(lp?.public_url);
+
+  console.log(`🔍 QA complete — score: ${score}/100, approved: ${approved}`);
+
+  return {
+    ok: true,
+    brief_title: briefTitle,
+    approved,
+    score,
+    passed_checks: passed,
+    total_checks: checks.length,
+    checks,
+    ai_review,
+    pipeline_summary: {
+      copy:        copyTask  ? { status: "done", id: copyTask.id }  : null,
+      images:      imageTask ? { status: "done", count: goodImages.length, id: imageTask.id } : null,
+      banners:     bannerTask? { status: "done", count: goodBanners.length, id: bannerTask.id } : null,
+      landing_page: lpTask   ? { status: "done", public_url: lp?.public_url, id: lpTask.id } : null,
+    },
+  };
+}
+
 const agents = {
   planner: async (task) => {
     return await runPlanner(task);
@@ -3587,14 +3708,7 @@ const agents = {
     };
   },
   qa: async (task) => {
-    return {
-      ok: true,
-      note: "qa placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      approved: true,
-      notes: [],
-    };
+    return runQA(task);
   },
 };
 
