@@ -3581,6 +3581,79 @@ async function runQA(task) {
   const failed = checks.filter((c) => !c.passed).length;
   const score  = Math.round((passed / checks.length) * 100);
 
+  // ── Gemini vision: Hebrew text check on banner images ─────────────────────
+  let banner_hebrew_review = null;
+  const bannerImageUrls = composedBanners
+    .filter((b) => b.composition_status === "composed" && (b.public_url || b.image_public_url))
+    .map((b) => b.public_url || b.image_public_url)
+    .slice(0, 3); // max 3 banners
+
+  // Also check composed banner images from the output (Gemini-composed ones have public_url)
+  const allComposedUrls = (bannerOutput?.composed_banners || [])
+    .filter((b) => b.public_url || b.image_public_url)
+    .map((b) => b.public_url || b.image_public_url)
+    .slice(0, 3);
+
+  const urlsToCheck = [...new Set([...bannerImageUrls, ...allComposedUrls])].slice(0, 3);
+
+  if (gemini && urlsToCheck.length > 0) {
+    try {
+      console.log(`🔍 QA: checking Hebrew on ${urlsToCheck.length} banner image(s) with Gemini vision`);
+
+      const imageParts = [];
+      for (const url of urlsToCheck) {
+        try {
+          const imgRes = await fetch(url);
+          if (!imgRes.ok) continue;
+          const imgBuf = await imgRes.arrayBuffer();
+          const imgBase64 = Buffer.from(imgBuf).toString("base64");
+          const contentType = imgRes.headers.get("content-type") || "image/png";
+          imageParts.push({ inlineData: { data: imgBase64, mimeType: contentType } });
+        } catch (fetchErr) {
+          console.warn(`⚠️ QA: failed to fetch banner image for vision check: ${url}`);
+        }
+      }
+
+      if (imageParts.length > 0) {
+        const visionPrompt = `You are a Hebrew language and marketing QA reviewer.
+Examine ${imageParts.length} real estate banner image(s). For each banner check:
+1. Is the Hebrew text readable and correctly spelled?
+2. Is text direction correct (RTL)?
+3. Is there any garbled, broken, or missing Hebrew characters?
+4. Does the text make sense for a real estate advertisement?
+5. Any layout issues (text cut off, overlapping, too small)?
+
+Brief context: "${briefTitle}"
+
+Respond in Hebrew. Be concise — one short paragraph per banner, then an overall verdict: עובר / לא עובר.
+If text looks good, say so briefly. Focus only on real issues.`;
+
+        const visionResponse = await gemini.models.generateContent({
+          model: GEMINI_BANNER_MODEL,
+          contents: [{
+            role: "user",
+            parts: [
+              ...imageParts,
+              { text: visionPrompt },
+            ],
+          }],
+        });
+
+        const visionText = visionResponse?.candidates?.[0]?.content?.parts
+          ?.filter((p) => p.text)
+          ?.map((p) => p.text)
+          ?.join("") || null;
+
+        if (visionText) {
+          banner_hebrew_review = visionText.trim();
+          console.log(`✅ QA banner Hebrew review complete`);
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ QA banner vision check failed:", e?.message);
+    }
+  }
+
   // ── AI narrative review ────────────────────────────────────────────────────
   let ai_review = null;
   if (openai && copyOutput) {
@@ -3596,15 +3669,18 @@ ${JSON.stringify({ title: copyOutput.title || copyOutput.page_title, headlines: 
 Pipeline status:
 - Copywriter: ${copyTask ? "✅ done" : "❌ missing"}
 - Images: ${goodImages.length} generated
-- Banners: ${goodBanners.length} composed
+- Banners: ${allBanners.length} total (${goodBanners.length} confirmed composed)
 - Landing page: ${lp?.public_url ? "✅ built — " + lp.public_url : "❌ missing"}
+- Banner Hebrew review: ${banner_hebrew_review ? "✅ completed" : "⚠️ not available"}
 - QA score: ${score}/100 (${passed}/${checks.length} checks passed)
 
 Failed checks: ${checks.filter(c => !c.passed).map(c => c.label).join(", ") || "none"}
 
+${banner_hebrew_review ? `Banner Hebrew review result:\n${banner_hebrew_review}` : ""}
+
 Respond in Hebrew with:
 1. סיכום קצר (2-3 משפטים) של מצב הקמפיין
-2. בעיות שנמצאו (אם יש)
+2. בעיות שנמצאו (אם יש) — כולל ממצאי הבדיקה הויזואלית של הבאנרים
 3. המלצה: האם הקמפיין מוכן לפרסום?
 
 Be concise and direct.`;
@@ -3612,7 +3688,7 @@ Be concise and direct.`;
       const reviewResponse = await openai.responses.create({
         model: "gpt-4o",
         input: reviewPrompt,
-        max_output_tokens: 400,
+        max_output_tokens: 500,
       });
       ai_review = reviewResponse.output_text?.trim() || null;
     } catch (e) {
@@ -3632,11 +3708,12 @@ Be concise and direct.`;
     passed_checks: passed,
     total_checks: checks.length,
     checks,
+    banner_hebrew_review,
     ai_review,
     pipeline_summary: {
       copy:        copyTask  ? { status: "done", id: copyTask.id }  : null,
       images:      imageTask ? { status: "done", count: goodImages.length, id: imageTask.id } : null,
-      banners:     bannerTask? { status: "done", count: goodBanners.length, id: bannerTask.id } : null,
+      banners:     bannerTask? { status: "done", count: allBanners.length, id: bannerTask.id } : null,
       landing_page: lpTask   ? { status: "done", public_url: lp?.public_url, id: lpTask.id } : null,
     },
   };
