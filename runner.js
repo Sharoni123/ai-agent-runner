@@ -15,6 +15,7 @@ const PUBLIC_DIR = process.env.PUBLIC_DIR
   : path.resolve(process.cwd(), "public");
 const GENERATED_IMAGES_DIR = path.join(PUBLIC_DIR, "generated-images");
 const BANNERS_DIR = path.join(PUBLIC_DIR, "banners");
+const PAGES_DIR = path.join(PUBLIC_DIR, "pages");
 const PUBLIC_ASSET_BASE_URL = (
   process.env.PUBLIC_ASSET_BASE_URL ||
   process.env.RUNNER_PUBLIC_BASE_URL ||
@@ -2736,6 +2737,786 @@ async function runCopywriter(task) {
   };
 }
 
+// ─── Landing Page Builder ────────────────────────────────────────────────────
+
+async function generateLogoWithGemini(brandName) {
+  if (!gemini) throw new Error("Gemini not configured");
+  console.log(`🎨 Generating logo for brand: ${brandName}`);
+  const prompt = `Create a clean, modern business logo for "${brandName}".
+Requirements:
+- Simple wordmark or icon+wordmark style
+- Professional and premium look
+- White or transparent background
+- No shadows, no gradients that look cheap
+- Suitable for real estate or professional services
+- Clean typography, minimal design
+- Output: PNG image, square format approx 400x400px`;
+
+  const result = await gemini.models.generateContent({
+    model: GEMINI_IMAGE_MODEL,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+  });
+  const parts = result?.candidates?.[0]?.content?.parts || [];
+  const imgPart = parts.find((p) => p.inlineData?.mimeType?.startsWith("image/"));
+  if (!imgPart) throw new Error("Gemini did not return an image for logo");
+  return `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`;
+}
+
+async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl, config }) {
+  if (!openai) throw new Error("OpenAI not configured for landing page generation");
+
+  const lang = config.language || "he";
+  const isHebrew = lang === "he";
+  const dir = isHebrew ? "rtl" : "ltr";
+
+  // Resolve form fields
+  const defaultFields = [
+    { label: isHebrew ? "שם מלא" : "Full Name", type: "text", name: "name", required: true },
+    { label: isHebrew ? "טלפון" : "Phone", type: "tel", name: "phone", required: true },
+    { label: isHebrew ? "אימייל" : "Email", type: "email", name: "email", required: false },
+  ];
+  const formFields = (config.form_fields && config.form_fields.length > 0)
+    ? config.form_fields
+    : defaultFields;
+
+  const submitText = config.submit_button_text || (isHebrew ? "שלח פרטים" : "Send Details");
+  const zapierWebhook = config.zapier_webhook_url || "";
+  const redirectUrl = config.redirect_url || "";
+  const metaPixelId = config.meta_pixel_id || "";
+  const whatsappEnabled = config.whatsapp_enabled !== false && config.whatsapp_number;
+  const whatsappNumber = config.whatsapp_number || "";
+  const whatsappMessage = config.whatsapp_message || (isHebrew ? "שלום, אני מעוניין לקבל מידע נוסף" : "Hello, I would like more information");
+  const phoneInNav = config.phone_in_nav || "";
+  const pageSlug = config.page_slug || "landing";
+  const colorScheme = config.color_scheme || "dark_luxury";
+
+  // Color scheme presets
+  const colors = {
+    dark_luxury: {
+      bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
+      accentDark: "#a07830", text: "#f5f0e8", subtext: "#b0a898",
+      navBg: "rgba(10,10,15,0.95)", heroOverlay: "rgba(0,0,0,0.55)",
+    },
+    light_modern: {
+      bg: "#f8f9fa", cardBg: "#ffffff", accent: "#2563eb",
+      accentDark: "#1d4ed8", text: "#111827", subtext: "#6b7280",
+      navBg: "rgba(255,255,255,0.95)", heroOverlay: "rgba(0,0,0,0.40)",
+    },
+    green_health: {
+      bg: "#f0fdf4", cardBg: "#ffffff", accent: "#16a34a",
+      accentDark: "#15803d", text: "#14532d", subtext: "#4b7a5a",
+      navBg: "rgba(240,253,244,0.95)", heroOverlay: "rgba(0,0,0,0.45)",
+    },
+  }[colorScheme] || colors?.dark_luxury || {
+    bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
+    accentDark: "#a07830", text: "#f5f0e8", subtext: "#b0a898",
+    navBg: "rgba(10,10,15,0.95)", heroOverlay: "rgba(0,0,0,0.55)",
+  };
+
+  // Prepare images for HTML
+  const heroImage = images[0] || "";
+  const contentImages = images.slice(1, 4);
+
+  // Generate form fields HTML
+  const formFieldsHtml = formFields.map(f => {
+    const req = f.required ? 'required' : '';
+    const reqMark = f.required ? '<span style="color:#e74c3c">*</span>' : '';
+    if (f.type === "select" && Array.isArray(f.options)) {
+      const opts = f.options.map(o => `<option value="${o}">${o}</option>`).join("");
+      return `<div class="form-group"><label>${f.label} ${reqMark}</label>
+        <select name="${f.name || f.label}" ${req} class="form-input"><option value="">בחר...</option>${opts}</select></div>`;
+    }
+    if (f.type === "checkbox") {
+      return `<div class="form-group form-check"><label class="check-label">
+        <input type="checkbox" name="${f.name || f.label}" ${req}> ${f.label} ${reqMark}</label></div>`;
+    }
+    return `<div class="form-group"><label>${f.label} ${reqMark}</label>
+      <input type="${f.type || 'text'}" name="${f.name || f.label}" placeholder="${f.placeholder || f.label}" ${req} class="form-input"></div>`;
+  }).join("\n");
+
+  // Zapier submit script
+  const zapierScript = zapierWebhook ? `
+    async function submitForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = '${isHebrew ? "שולח..." : "Sending..."}';
+      const form = e.target;
+      const data = {};
+      new FormData(form).forEach((v, k) => { data[k] = v; });
+      // UTM passthrough
+      const params = new URLSearchParams(window.location.search);
+      ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(p => {
+        if (params.get(p)) data[p] = params.get(p);
+      });
+      data.page_slug = '${pageSlug}';
+      data.submitted_at = new Date().toISOString();
+      try {
+        await fetch('${zapierWebhook}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          mode: 'no-cors'
+        });
+      } catch(err) { console.error('Zapier error:', err); }
+      document.getElementById('form-container').innerHTML = '<div class="success-msg">${isHebrew ? "תודה! נציג יחזור אליך בהקדם 🎉" : "Thank you! We will be in touch soon 🎉"}</div>';
+      ${redirectUrl ? `setTimeout(() => { window.location.href = '${redirectUrl}'; }, 2000);` : ""}
+    }` : `
+    function submitForm(e) {
+      e.preventDefault();
+      document.getElementById('form-container').innerHTML = '<div class="success-msg">${isHebrew ? "תודה! נציג יחזור אליך בהקדם 🎉" : "Thank you! We will be in touch soon 🎉"}</div>';
+      ${redirectUrl ? `setTimeout(() => { window.location.href = '${redirectUrl}'; }, 2000);` : ""}
+    }`;
+
+  // Meta Pixel
+  const pixelScript = metaPixelId ? `
+  <!-- Meta Pixel -->
+  <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '${metaPixelId}');
+    fbq('track', 'PageView');
+  </\script>
+  <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${metaPixelId}&ev=PageView&noscript=1"/></noscript>` : "";
+
+  // WhatsApp button
+  const whatsappBtn = whatsappEnabled ? `
+  <a href="https://wa.me/${whatsappNumber.replace(/\D/g,'')}?text=${encodeURIComponent(whatsappMessage)}"
+     class="whatsapp-btn" target="_blank" rel="noopener" title="WhatsApp">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+    </svg>
+  </a>` : "";
+
+  // Testimonials section
+  const testimonialsSection = config.show_testimonials !== false && copy.testimonials ? `
+  <section class="section testimonials-section">
+    <div class="container">
+      <h2 class="section-title">${isHebrew ? "מה לקוחותינו אומרים" : "What Our Clients Say"}</h2>
+      <div class="testimonials-grid">
+        ${copy.testimonials.map(t => `
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <p class="testimonial-text">"${t.text}"</p>
+          <p class="testimonial-author">— ${t.author}</p>
+        </div>`).join("")}
+      </div>
+    </div>
+  </section>` : "";
+
+  // FAQ section
+  const faqSection = config.show_faq !== false && copy.faq ? `
+  <section class="section faq-section">
+    <div class="container">
+      <h2 class="section-title">${isHebrew ? "שאלות נפוצות" : "Frequently Asked Questions"}</h2>
+      <div class="faq-list">
+        ${copy.faq.map((item, i) => `
+        <div class="faq-item" onclick="toggleFaq(${i})">
+          <div class="faq-question">
+            <span>${item.question}</span>
+            <span class="faq-arrow" id="arrow-${i}">▼</span>
+          </div>
+          <div class="faq-answer" id="faq-${i}">${item.answer}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+  </section>` : "";
+
+  // Stats bar
+  const statsBar = config.show_stats !== false && copy.stats ? `
+  <section class="stats-bar">
+    <div class="container stats-grid">
+      ${copy.stats.map(s => `
+      <div class="stat-item">
+        <div class="stat-number">${s.value}</div>
+        <div class="stat-label">${s.label}</div>
+      </div>`).join("")}
+    </div>
+  </section>` : "";
+
+  // Logo HTML
+  const logoHtml = logoDataUrl
+    ? `<img src="${logoDataUrl}" alt="${brief.title}" class="nav-logo">`
+    : logoUrl
+    ? `<img src="${logoUrl}" alt="${brief.title}" class="nav-logo">`
+    : `<span class="nav-brand">${brief.brand_name || brief.title}</span>`;
+
+  // Content sections with images
+  const contentSections = copy.sections ? copy.sections.map((sec, i) => `
+  <section class="section content-section ${i % 2 === 1 ? "alt-bg" : ""}">
+    <div class="container section-flex ${i % 2 === 1 ? "reverse" : ""}">
+      ${contentImages[i] ? `<div class="section-image"><img src="${contentImages[i]}" alt="${sec.title || ""}" loading="lazy"></div>` : ""}
+      <div class="section-text">
+        ${sec.title ? `<h2 class="section-title">${sec.title}</h2>` : ""}
+        ${sec.body ? `<p class="section-body">${sec.body}</p>` : ""}
+        ${sec.bullets ? `<ul class="section-bullets">${sec.bullets.map(b => `<li>${b}</li>`).join("")}</ul>` : ""}
+      </div>
+    </div>
+  </section>`).join("") : "";
+
+  // Hero section
+  const heroStyle = heroImage
+    ? `background-image: url('${heroImage}'); background-size: cover; background-position: center;`
+    : `background: linear-gradient(135deg, ${colors.bg} 0%, ${colors.cardBg} 100%);`;
+
+  const html = `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title || brief.title}</title>
+  <meta name="description" content="${copy.meta_description || brief.context || ""}">
+  ${metaPixelId ? pixelScript : ""}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Noto Sans Hebrew', Arial, sans-serif;
+      background: ${colors.bg};
+      color: ${colors.text};
+      direction: ${dir};
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: ${colors.navBg};
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 14px 0;
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { height: 48px; width: auto; object-fit: contain; }
+    .nav-brand { font-size: 1.3rem; font-weight: 700; color: ${colors.accent}; }
+    .nav-phone { color: ${colors.accent}; font-size: 1.05rem; font-weight: 600; text-decoration: none; letter-spacing: 0.5px; }
+
+    /* HERO */
+    .hero {
+      position: relative; min-height: 88vh;
+      display: flex; align-items: center;
+      ${heroStyle}
+    }
+    .hero::after {
+      content: ''; position: absolute; inset: 0;
+      background: ${colors.heroOverlay};
+    }
+    .hero-content { position: relative; z-index: 1; padding: 80px 0; }
+    .hero-badge {
+      display: inline-block; background: ${colors.accent};
+      color: #fff; font-size: 0.8rem; font-weight: 700;
+      padding: 5px 14px; border-radius: 20px; margin-bottom: 20px;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .hero-title {
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      font-weight: 800; line-height: 1.2;
+      color: #fff; margin-bottom: 18px;
+    }
+    .hero-title span { color: ${colors.accent}; }
+    .hero-subtitle {
+      font-size: clamp(1rem, 2.5vw, 1.3rem);
+      color: rgba(255,255,255,0.85);
+      margin-bottom: 36px; max-width: 600px;
+    }
+    .hero-cta-group { display: flex; gap: 14px; flex-wrap: wrap; }
+    .btn-primary {
+      background: linear-gradient(135deg, ${colors.accent}, ${colors.accentDark});
+      color: #fff; border: none; padding: 15px 32px;
+      font-size: 1.05rem; font-weight: 700; border-radius: 8px;
+      cursor: pointer; text-decoration: none; display: inline-block;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .btn-secondary {
+      background: transparent; color: #fff;
+      border: 2px solid rgba(255,255,255,0.5);
+      padding: 13px 28px; font-size: 1rem; font-weight: 600;
+      border-radius: 8px; cursor: pointer; text-decoration: none;
+      display: inline-block; transition: all 0.2s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: #fff; }
+
+    /* STATS BAR */
+    .stats-bar {
+      background: ${colors.accent};
+      padding: 28px 0;
+    }
+    .stats-grid { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; }
+    .stat-item { text-align: center; }
+    .stat-number { font-size: 2rem; font-weight: 800; color: #fff; }
+    .stat-label { font-size: 0.85rem; color: rgba(255,255,255,0.85); font-weight: 500; }
+
+    /* SECTIONS */
+    .section { padding: 72px 0; }
+    .alt-bg { background: ${colors.cardBg}; }
+    .section-flex { display: flex; align-items: center; gap: 56px; }
+    .section-flex.reverse { flex-direction: row-reverse; }
+    .section-image { flex: 1; }
+    .section-image img { width: 100%; border-radius: 12px; object-fit: cover; max-height: 380px; }
+    .section-text { flex: 1; }
+    .section-title {
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 700; color: ${colors.text};
+      margin-bottom: 16px; text-align: center;
+    }
+    .section-text .section-title { text-align: ${dir === "rtl" ? "right" : "left"}; }
+    .section-body { color: ${colors.subtext}; font-size: 1.05rem; line-height: 1.8; margin-bottom: 16px; }
+    .section-bullets { list-style: none; padding: 0; }
+    .section-bullets li {
+      padding: 8px 0 8px 8px;
+      color: ${colors.subtext}; font-size: 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-bullets li::before {
+      content: '✓'; color: ${colors.accent}; font-weight: 700;
+      min-width: 20px;
+    }
+
+    /* FORM SECTION */
+    .form-section {
+      background: ${colors.cardBg};
+      padding: 80px 0;
+    }
+    .form-wrapper {
+      max-width: 560px; margin: 0 auto;
+      background: ${colors.bg};
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px; padding: 48px 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .form-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; color: ${colors.text}; text-align: center; }
+    .form-subtitle { color: ${colors.subtext}; margin-bottom: 32px; text-align: center; font-size: 0.95rem; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; color: ${colors.subtext}; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+    .form-input {
+      width: 100%; padding: 13px 16px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; color: ${colors.text};
+      font-size: 1rem; font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus { outline: none; border-color: ${colors.accent}; }
+    .form-check { display: flex; align-items: center; }
+    .check-label { display: flex; align-items: center; gap: 10px; cursor: pointer; color: ${colors.subtext}; }
+    .form-submit {
+      width: 100%; padding: 16px;
+      background: linear-gradient(135deg, ${colors.accent}, ${colors.accentDark});
+      color: #fff; border: none; border-radius: 8px;
+      font-size: 1.1rem; font-weight: 700;
+      cursor: pointer; margin-top: 8px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+    }
+    .form-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+    .form-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .success-msg {
+      text-align: center; font-size: 1.3rem; font-weight: 700;
+      color: ${colors.accent}; padding: 48px 24px;
+    }
+
+    /* TESTIMONIALS */
+    .testimonials-section { background: ${colors.bg}; }
+    .testimonials-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; margin-top: 40px; }
+    .testimonial-card {
+      background: ${colors.cardBg};
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 28px 24px;
+    }
+    .stars { color: ${colors.accent}; font-size: 1.1rem; margin-bottom: 12px; }
+    .testimonial-text { color: ${colors.subtext}; font-size: 0.95rem; line-height: 1.7; margin-bottom: 14px; }
+    .testimonial-author { color: ${colors.text}; font-weight: 600; font-size: 0.9rem; }
+
+    /* FAQ */
+    .faq-section { background: ${colors.cardBg}; }
+    .faq-list { max-width: 760px; margin: 40px auto 0; }
+    .faq-item {
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+    }
+    .faq-question {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 20px 0; font-weight: 600; font-size: 1rem;
+      color: ${colors.text};
+    }
+    .faq-arrow { color: ${colors.accent}; transition: transform 0.3s; font-size: 0.8rem; }
+    .faq-answer {
+      display: none; color: ${colors.subtext};
+      padding-bottom: 20px; font-size: 0.95rem; line-height: 1.7;
+    }
+    .faq-answer.open { display: block; }
+
+    /* FOOTER */
+    footer {
+      background: #05050a;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 32px 0; text-align: center;
+    }
+    .footer-text { color: rgba(255,255,255,0.3); font-size: 0.8rem; line-height: 1.8; }
+
+    /* WHATSAPP FLOAT */
+    .whatsapp-btn {
+      position: fixed; bottom: 28px;
+      ${dir === "rtl" ? "left: 28px;" : "right: 28px;"}
+      background: #25d366;
+      width: 60px; height: 60px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 20px rgba(37,211,102,0.4);
+      z-index: 999; transition: transform 0.2s;
+      text-decoration: none;
+    }
+    .whatsapp-btn:hover { transform: scale(1.1); }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .section-flex, .section-flex.reverse { flex-direction: column; }
+      .hero-cta-group { flex-direction: column; }
+      .btn-primary, .btn-secondary { text-align: center; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .form-wrapper { padding: 32px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="container nav-inner">
+      <div>${logoHtml}</div>
+      ${phoneInNav ? `<a href="tel:${phoneInNav.replace(/\s/g,'')}" class="nav-phone">${phoneInNav}</a>` : ""}
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container hero-content">
+      ${copy.badge ? `<div class="hero-badge">${copy.badge}</div>` : ""}
+      <h1 class="hero-title">${copy.hero_title || brief.title}</h1>
+      <p class="hero-subtitle">${copy.hero_subtitle || brief.context || ""}</p>
+      <div class="hero-cta-group">
+        <a href="#lead-form" class="btn-primary">${copy.cta_primary || submitText}</a>
+        ${copy.cta_secondary ? `<a href="#content" class="btn-secondary">${copy.cta_secondary}</a>` : ""}
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS BAR -->
+  ${statsBar}
+
+  <!-- CONTENT SECTIONS -->
+  <div id="content">
+    ${contentSections}
+  </div>
+
+  <!-- TESTIMONIALS -->
+  ${testimonialsSection}
+
+  <!-- FAQ -->
+  ${faqSection}
+
+  <!-- LEAD FORM -->
+  <section class="form-section" id="lead-form">
+    <div class="container">
+      <div class="form-wrapper">
+        <h2 class="form-title">${copy.form_title || (isHebrew ? "השאירו פרטים" : "Get In Touch")}</h2>
+        <p class="form-subtitle">${copy.form_subtitle || (isHebrew ? "נציג יחזור אליכם בהקדם האפשרי" : "We will get back to you shortly")}</p>
+        <div id="form-container">
+          <form onsubmit="submitForm(event)" novalidate>
+            ${formFieldsHtml}
+            <button type="submit" class="form-submit" id="submit-btn">${submitText}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container">
+      <p class="footer-text">
+        ${copy.footer_disclaimer || brief.disclaimer || (isHebrew ? "המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד." : "The information on this site does not constitute legal or financial advice. Images are for illustration purposes only.")}
+      </p>
+    </div>
+  </footer>
+
+  <!-- WHATSAPP FLOAT -->
+  ${whatsappBtn}
+
+  <script>
+    ${zapierScript}
+
+    function toggleFaq(i) {
+      const el = document.getElementById('faq-' + i);
+      const arrow = document.getElementById('arrow-' + i);
+      if (el.classList.contains('open')) {
+        el.classList.remove('open');
+        arrow.style.transform = 'rotate(0deg)';
+      } else {
+        document.querySelectorAll('.faq-answer').forEach(a => a.classList.remove('open'));
+        document.querySelectorAll('.faq-arrow').forEach(a => a.style.transform = 'rotate(0deg)');
+        el.classList.add('open');
+        arrow.style.transform = 'rotate(180deg)';
+      }
+    }
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      });
+    });
+  </script>
+</body>
+</html>`;
+
+  return html;
+}
+
+async function generateLandingPageCopyWithAI(brief, config) {
+  if (!openai) throw new Error("OpenAI not configured");
+  const lang = config.language || "he";
+  const isHebrew = lang === "he";
+
+  const prompt = `You are an expert ${isHebrew ? "Hebrew-language" : "English-language"} landing page copywriter specializing in ${brief.campaign_type || "real estate"} marketing.
+
+Create complete landing page copy for the following brief:
+Title: ${brief.title}
+Context: ${brief.context || ""}
+Audience: ${brief.audience || ""}
+Tone: ${brief.tone || "premium, professional"}
+CTA: ${brief.cta || ""}
+Offer/Product: ${brief.offer || ""}
+Location: ${brief.location || ""}
+Key points: ${brief.key_points?.join(", ") || ""}
+
+${config.show_testimonials !== false ? "Include 3 testimonials." : "No testimonials needed."}
+${config.show_faq !== false ? "Include 4 FAQ items." : "No FAQ needed."}
+${config.show_stats !== false ? "Include 3-4 compelling stats/numbers." : "No stats needed."}
+
+Respond ONLY with a JSON object (no markdown, no backticks) in this exact shape:
+{
+  "page_title": "...",
+  "meta_description": "...",
+  "badge": "...",
+  "hero_title": "...",
+  "hero_subtitle": "...",
+  "cta_primary": "...",
+  "cta_secondary": "...",
+  "form_title": "...",
+  "form_subtitle": "...",
+  "sections": [
+    { "title": "...", "body": "...", "bullets": ["...","...","..."] },
+    { "title": "...", "body": "...", "bullets": ["...","...","..."] }
+  ],
+  "stats": [
+    { "value": "...", "label": "..." }
+  ],
+  "testimonials": [
+    { "text": "...", "author": "..." }
+  ],
+  "faq": [
+    { "question": "...", "answer": "..." }
+  ],
+  "footer_disclaimer": "..."
+}
+
+All text must be in ${isHebrew ? "Hebrew" : "English"}. Make copy compelling, specific, and conversion-focused.`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7,
+    max_tokens: 3000,
+  });
+
+  const raw = response.choices[0].message.content || "";
+  const clean = raw.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+async function runLandingPageBuilder(task) {
+  const input = getTaskInput(task);
+  const sourceTaskId = normalizeText(input.source_task_id, "");
+  const briefTitle = getBriefTitle(task);
+  const assets = getAssets(task);
+
+  // ── 1. Gather sibling outputs ──────────────────────────────────────────────
+  let siblings = [];
+  if (sourceTaskId) {
+    siblings = await listSiblingTasksForSourceTask(sourceTaskId);
+  }
+
+  const copyTask = siblings.find(
+    (item) =>
+      ["article", "ad_copy"].includes(normalizeText(item.type).toLowerCase()) &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+  const visualTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "visual_prompts" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+  const imageTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "background_images" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
+
+  const copyOutput = copyTask?.output_data || {};
+  const visualOutput = visualTask?.output_data || {};
+  const imageOutput = imageTask?.output_data || {};
+
+  // ── 2. Collect images (sibling-generated first, then asset URLs) ───────────
+  const siblingImages = Array.isArray(imageOutput.generated_images)
+    ? imageOutput.generated_images
+        .map((img) => img.public_url || img.url || "")
+        .filter(Boolean)
+    : [];
+  const assetImages = assets.images || [];
+  const allImages = [...siblingImages, ...assetImages];
+
+  // ── 3. Resolve logo ────────────────────────────────────────────────────────
+  // Priority: input.logo_url > assets.logos[0] > generate with Gemini
+  const logoUrlInput = normalizeText(input.logo_url, "");
+  const assetLogo = assets.logos?.[0] || "";
+  let logoUrl = logoUrlInput || assetLogo || "";
+  let logoDataUrl = "";
+  const brandName = normalizeText(input.brand_name || input.brand, "");
+
+  if (!logoUrl && brandName) {
+    try {
+      console.log(`🎨 No logo provided — generating logo for: ${brandName}`);
+      logoDataUrl = await generateLogoWithGemini(brandName);
+      console.log("✅ Logo generated by Gemini");
+    } catch (logoErr) {
+      console.error("⚠️ Logo generation failed:", logoErr?.message || logoErr);
+    }
+  }
+
+  // ── 4. Build brief from task + sibling copy ────────────────────────────────
+  const normalizedBrief = buildNormalizedBrief(task);
+  normalizedBrief.brand_name = brandName || briefTitle;
+
+  // ── 5. Landing page config from input_data ─────────────────────────────────
+  const config = {
+    language: normalizeText(input.language, "he"),
+    color_scheme: normalizeText(input.color_scheme, "dark_luxury"),
+    page_slug: normalizeText(input.page_slug, `page-${Date.now()}`),
+    // Form
+    form_fields: Array.isArray(input.form_fields) ? input.form_fields : [],
+    submit_button_text: normalizeText(input.submit_button_text, ""),
+    zapier_webhook_url: normalizeText(input.zapier_webhook_url, ""),
+    redirect_url: normalizeText(input.redirect_url, ""),
+    // Optional sections
+    show_testimonials: input.show_testimonials !== false,
+    show_faq: input.show_faq !== false,
+    show_stats: input.show_stats !== false,
+    // Optional elements
+    whatsapp_enabled: Boolean(input.whatsapp_enabled) && Boolean(input.whatsapp_number),
+    whatsapp_number: normalizeText(input.whatsapp_number, ""),
+    whatsapp_message: normalizeText(input.whatsapp_message, ""),
+    phone_in_nav: normalizeText(input.phone_in_nav, ""),
+    meta_pixel_id: normalizeText(input.meta_pixel_id, ""),
+  };
+
+  // ── 6. Generate AI copy ────────────────────────────────────────────────────
+  let copy;
+  try {
+    // Use existing copywriter output as seed if available
+    const existingCopy = normalizeText(
+      copyOutput.article || copyOutput.body || copyOutput.ad_copy,
+      ""
+    );
+    const enrichedBrief = {
+      ...normalizedBrief,
+      existing_copy_seed: existingCopy ? existingCopy.slice(0, 1200) : undefined,
+      visual_style: normalizeText(visualOutput.visual_style, ""),
+      color_palette: normalizeText(visualOutput.color_palette, ""),
+    };
+    copy = await generateLandingPageCopyWithAI(enrichedBrief, config);
+    console.log("✅ Landing page copy generated by GPT-4o");
+  } catch (copyErr) {
+    console.error("⚠️ AI copy generation failed, using fallback:", copyErr?.message || copyErr);
+    const isHebrew = config.language === "he";
+    copy = {
+      page_title: briefTitle,
+      meta_description: normalizedBrief.context || briefTitle,
+      badge: isHebrew ? "הזדמנות מיוחדת" : "Special Offer",
+      hero_title: briefTitle,
+      hero_subtitle: normalizedBrief.context || "",
+      cta_primary: normalizedBrief.cta || (isHebrew ? "השאירו פרטים" : "Get In Touch"),
+      cta_secondary: isHebrew ? "גלו עוד" : "Learn More",
+      form_title: isHebrew ? "השאירו פרטים" : "Contact Us",
+      form_subtitle: isHebrew ? "נחזור אליכם בהקדם" : "We will get back to you soon",
+      sections: [{ title: briefTitle, body: normalizedBrief.context || "", bullets: normalizedBrief.key_points }],
+      stats: [],
+      testimonials: [],
+      faq: [],
+      footer_disclaimer: normalizedBrief.disclaimer,
+    };
+  }
+
+  // ── 7. Build HTML ──────────────────────────────────────────────────────────
+  let html;
+  try {
+    html = await buildLandingPageHTML({
+      brief: normalizedBrief,
+      copy,
+      images: allImages,
+      logoDataUrl,
+      logoUrl,
+      config,
+    });
+    console.log("✅ Landing page HTML built");
+  } catch (htmlErr) {
+    console.error("❌ HTML build failed:", htmlErr?.message || htmlErr);
+    throw htmlErr;
+  }
+
+  // ── 8. Save HTML file ──────────────────────────────────────────────────────
+  await ensureDir(PAGES_DIR);
+  const safeSlug = config.page_slug.replace(/[^a-z0-9-_]/gi, "-").slice(0, 60) || `page-${Date.now()}`;
+  const fileName = `${safeSlug}.html`;
+  const filePath = path.join(PAGES_DIR, fileName);
+  await fs.writeFile(filePath, html, "utf8");
+  const publicUrl = PUBLIC_ASSET_BASE_URL
+    ? `${PUBLIC_ASSET_BASE_URL}/pages/${fileName}`
+    : `/pages/${fileName}`;
+  console.log(`✅ Landing page saved: ${filePath}`);
+
+  return {
+    ok: true,
+    note: "landing_page_builder completed",
+    brief_title: briefTitle,
+    planner_brief: input.planner_brief ?? null,
+    related_sources: {
+      copy_task_found: Boolean(copyTask),
+      image_task_found: Boolean(imageTask),
+      images_used: allImages.length,
+      logo_source: logoDataUrl ? "gemini_generated" : logoUrl ? "provided_url" : "none",
+    },
+    landing_page: {
+      file_name: fileName,
+      file_path: filePath,
+      public_url: publicUrl,
+      page_slug: safeSlug,
+      language: config.language,
+      whatsapp_enabled: config.whatsapp_enabled,
+      form_fields_count: (config.form_fields.length > 0 ? config.form_fields : [1, 2, 3]).length,
+      has_meta_pixel: Boolean(config.meta_pixel_id),
+      has_zapier: Boolean(config.zapier_webhook_url),
+      html_size_bytes: Buffer.byteLength(html, "utf8"),
+    },
+  };
+}
+
 const agents = {
   planner: async (task) => {
     return await runPlanner(task);
@@ -2794,32 +3575,7 @@ const agents = {
     return await runBannerComposer(task);
   },
   landing_page_builder: async (task) => {
-    return {
-      ok: true,
-      note: "landing_page_builder placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      assets: getAssets(task),
-      landing_page: {
-        html: `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Landing Page Placeholder</title>
-</head>
-<body style="font-family:Arial;padding:24px">
-  <h1>דף נחיתה (Placeholder)</h1>
-  <p>זה שלד ראשוני כדי לוודא שהריצה עובדת.</p>
-  <form>
-    <input placeholder="שם" style="display:block;margin:8px 0;padding:10px;width:260px"/>
-    <input placeholder="טלפון" style="display:block;margin:8px 0;padding:10px;width:260px"/>
-    <button type="button" style="padding:10px 16px">שלח</button>
-  </form>
-</body>
-</html>`,
-      },
-    };
+    return runLandingPageBuilder(task);
   },
   video_producer: async (task) => {
     return {
@@ -3030,6 +3786,7 @@ async function main() {
   console.log("🚀 Starting agent runner (manual mode — no auto-processing)...");
   await ensureDir(GENERATED_IMAGES_DIR);
   await ensureDir(BANNERS_DIR);
+  await ensureDir(PAGES_DIR);
   await auth();
   if (openai) {
     console.log("🤖 OpenAI is enabled for copywriter");
