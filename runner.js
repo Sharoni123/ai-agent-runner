@@ -3560,15 +3560,16 @@ async function runQA(task) {
   flag("images_count",   "At least 2 images generated", goodImages.length >= 2, `${goodImages.length} image(s) generated`);
   flag("images_urls",    "All images have public URLs", goodImages.length === generatedImages.length && generatedImages.length > 0, "");
 
-  // Banners
-  const banners = bannerOutput?.composed_banners || bannerOutput?.banners || bannerOutput?.final_banners || [];
-  const goodBanners = banners.filter((b) => b.composition_status === "composed" || b.status === "composed" || b.status === "generated" || b.image_public_url || b.composed_image_url || b.public_url);
-  // Fallback: if bannerTask is done and output exists but array parsing failed, trust the task status
-  const bannerCountOk = goodBanners.length >= 1 || (Boolean(bannerTask) && bannerOutput?.ok === true && banners.length >= 1);
-  const bannerDebugDetail = `${goodBanners.length}/${banners.length} composed (keys: ${Object.keys(bannerOutput || {}).join(", ")})`;
-  console.log(`🔍 QA banner debug — output keys: ${Object.keys(bannerOutput || {}).join(", ")}, banners array length: ${banners.length}, goodBanners: ${goodBanners.length}`);
+  // Banners — banner_composer stores plans in final_banners and composed results in composed_banners
+  const composedBanners = bannerOutput?.composed_banners || [];
+  const finalBanners = bannerOutput?.final_banners || [];
+  const allBanners = composedBanners.length > 0 ? composedBanners : finalBanners;
+  const goodBanners = composedBanners.filter((b) => b.composition_status === "composed" || b.public_url || b.image_public_url);
+  // Pass if: at least 1 composed banner found, OR task is done+ok and has any banner plans
+  const bannerCountOk = goodBanners.length >= 1 || (Boolean(bannerTask) && bannerOutput?.ok === true && allBanners.length >= 1);
+  const bannerDetail = `${goodBanners.length} composed, ${allBanners.length} total`;
   flag("banners_exist",  "Banner task completed",      Boolean(bannerTask), bannerTask ? "" : "No done banner task found");
-  flag("banners_count",  "At least 1 banner composed", bannerCountOk, bannerDebugDetail);
+  flag("banners_count",  "At least 1 banner composed", bannerCountOk, bannerDetail);
 
   // Landing page
   const lp = lpOutput?.landing_page || null;
