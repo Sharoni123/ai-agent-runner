@@ -261,7 +261,7 @@ function getAssets(task) {
   };
 }
 
-// Fetch client assets from PocketBase client_assets collection
+
 async function getClientAssets(task) {
   const base = getAssets(task);
   try {
@@ -638,6 +638,28 @@ async function saveGeneratedImageToPublic({
       .toBuffer();
   }
   return await saveBufferToPublic(subdir, finalFilename, outputBuffer);
+}
+
+// Save an image buffer to PocketBase `assets` collection — permanent URL, survives restarts
+async function saveImageToPocketBase(buffer, mimeType, filename, campaignId = "", taskId = "") {
+  try {
+    const ext = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
+    const safeFilename = filename.endsWith(`.${ext}`) ? filename : `${filename}.${ext}`;
+    const blob = new Blob([buffer], { type: mimeType });
+    const formData = new FormData();
+    formData.append("file", blob, safeFilename);
+    formData.append("name", safeFilename);
+    formData.append("asset_type", "generated_image");
+    if (campaignId) formData.append("campaign_id", campaignId);
+    if (taskId)    formData.append("task_id",    taskId);
+    const record = await pb.collection("assets").create(formData);
+    const fileUrl = `${PB_URL}/api/files/assets/${record.id}/${record.file}`;
+    console.log(`📦 Image saved to PocketBase: ${fileUrl}`);
+    return { record, fileUrl };
+  } catch (err) {
+    console.warn("⚠️ saveImageToPocketBase failed:", err?.message || err);
+    return null;
+  }
 }
 
 async function readLocalFileSafe(filePath) {
@@ -1639,6 +1661,42 @@ async function generateImagesWithAI(task, related = {}) {
   }
 
   const generated_images = [];
+
+  // If client has uploaded property photos, use them instead of generating new ones
+  if (assets.hasPhotos && assets.photoUrls?.length > 0) {
+    console.log(`📸 Using ${assets.photoUrls.length} client-uploaded photos instead of generating new images`);
+    for (let i = 0; i < plans.length; i++) {
+      const plan = plans[i];
+      const photoUrl = assets.photoUrls[i % assets.photoUrls.length];
+      generated_images.push({
+        banner_name:       plan.banner_name,
+        requested_size:    plan.requested_size,
+        image_size:        plan.image_size,
+        aspect_ratio:      plan.aspect_ratio,
+        output_width:      plan.output_width,
+        output_height:     plan.output_height,
+        prompt:            "client-uploaded photo",
+        mime_type:         "image/jpeg",
+        generation_status: "client_upload",
+        has_image_data:    true,
+        image_public_url:  photoUrl,
+        image_file_path:   "",
+        image_relative_path: "",
+        generator:         "client_upload",
+        generator_model:   null,
+      });
+    }
+    return {
+      ok: true,
+      ai_generated: false,
+      note: `image_generator used ${assets.photoUrls.length} client-uploaded photos`,
+      brief_title: briefTitle,
+      planner_brief: getTaskInput(task).planner_brief ?? null,
+      assets,
+      generated_images,
+    };
+  }
+
   for (const plan of plans) {
     console.log(`🖼️ Generating background image for ${plan.banner_name} via Imagen 3 (${plan.aspect_ratio})`);
 
@@ -1665,14 +1723,44 @@ async function generateImagesWithAI(task, related = {}) {
     console.log(`✅ Background generated for ${plan.banner_name}`);
 
     const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}`;
-    const saved = await saveGeneratedImageToPublic({
-      subdir: "generated-images",
-      filenameBase: fileBase,
-      base64: imageBase64,
-      mimeType: imageMimeType,
-      targetWidth: plan.output_width,
-      targetHeight: plan.output_height,
-    });
+
+    // Resize buffer first (sharp needed for banner_composer to read local file)
+    let outputBuffer;
+    try {
+      const sharp = await getSharp();
+      const inputBuffer = Buffer.from(imageBase64, "base64");
+      const ext = imageMimeType === "image/jpeg" ? "jpg" : "png";
+      outputBuffer = plan.output_width && plan.output_height
+        ? await sharp(inputBuffer).resize(plan.output_width, plan.output_height, { fit: "cover", position: "centre" }).toFormat(ext === "jpg" ? "jpeg" : "png").toBuffer()
+        : inputBuffer;
+    } catch {
+      outputBuffer = Buffer.from(imageBase64, "base64");
+    }
+
+    // Primary: save to PocketBase (permanent URL, survives restarts)
+    let imagePublicUrl = "";
+    let imageFilePath = "";
+    let imageRelativePath = "";
+    const pbSaved = await saveImageToPocketBase(
+      outputBuffer, imageMimeType, `${fileBase}.png`,
+      task.campaign_id || "", task.id || ""
+    );
+    if (pbSaved?.fileUrl) {
+      imagePublicUrl = pbSaved.fileUrl;
+      console.log(`✅ Image saved to PocketBase for ${plan.banner_name}`);
+    }
+
+    // Also save locally as cache (for banner_composer in same session)
+    try {
+      const localSaved = await saveBufferToPublic("generated-images", `${fileBase}.png`, outputBuffer);
+      imageFilePath = localSaved.file_path;
+      imageRelativePath = localSaved.relative_path;
+      // Use local URL as fallback if PB save failed
+      if (!imagePublicUrl) imagePublicUrl = localSaved.public_url;
+    } catch (localErr) {
+      console.warn("⚠️ Local image cache save failed:", localErr?.message);
+    }
+
     generated_images.push({
       banner_name: plan.banner_name,
       requested_size: plan.requested_size,
@@ -1684,9 +1772,9 @@ async function generateImagesWithAI(task, related = {}) {
       mime_type: imageMimeType,
       generation_status: "generated",
       has_image_data: true,
-      image_public_url: saved.public_url,
-      image_file_path: saved.file_path,
-      image_relative_path: saved.relative_path,
+      image_public_url: imagePublicUrl,
+      image_file_path: imageFilePath,
+      image_relative_path: imageRelativePath,
       generator: "imagen3",
       generator_model: IMAGEN_MODEL,
     });
@@ -1695,7 +1783,7 @@ async function generateImagesWithAI(task, related = {}) {
   return {
     ok: true,
     ai_generated: true,
-    note: "image_generator ai via gemini — 3 unique images with distinct vibes",
+    note: "image_generator ai via gemini — images saved to PocketBase (permanent URLs)",
     brief_title: briefTitle,
     planner_brief: getTaskInput(task).planner_brief ?? null,
     assets,
@@ -2709,6 +2797,18 @@ async function listExistingChildTasks(sourceTaskId) {
 
 async function runPlanner(task) {
   const normalizedBrief = buildNormalizedBrief(task);
+
+  // Fetch client assets and merge into brief assets
+  const clientAssets = await getClientAssets(task);
+  if (clientAssets.hasLogo || clientAssets.hasPhotos) {
+    console.log(`📎 Injecting client assets into planner brief — logo: ${clientAssets.hasLogo}, photos: ${clientAssets.photoUrls?.length ?? 0}`);
+    normalizedBrief.assets = clientAssets;
+    // Also inject explicit fields for downstream agents
+    normalizedBrief.client_logo_url = clientAssets.logoUrl || null;
+    normalizedBrief.client_photo_urls = clientAssets.photoUrls || [];
+    normalizedBrief.has_client_assets = true;
+  }
+
   const plannedChildren = buildPlannerChildren(task, normalizedBrief);
   const existingChildren = await listExistingChildTasks(task.id);
   const existingTypes = new Set(
@@ -2752,6 +2852,8 @@ async function runPlanner(task) {
       images: normalizedBrief.assets.images.length,
       inspiration: normalizedBrief.assets.inspiration.length,
       total: normalizedBrief.assets.all.length,
+      client_logo: normalizedBrief.client_logo_url ? "✓ uploaded" : "none",
+      client_photos: normalizedBrief.client_photo_urls?.length ?? 0,
     },
     existing_children_count: existingChildren.length,
     created_children_count: createdChildren.length,
@@ -3358,7 +3460,7 @@ async function generateLandingPageCopyWithAI(brief, config) {
   const lang = config.language || "he";
   const isHebrew = lang === "he";
 
-  const prompt = `You are an expert ${isHebrew ? "Hebrew-language" : "English-language"} landing page copywriter specializing in ${brief.campaign_type || "real estate"} marketing.
+  const prompt = `You are an expert ${isHebrew ? "Hebrew-language" : "English-language"} landing page copywriter specializing in ${brief.campaign_type || "real estate"} campaign.
 
 Create complete landing page copy for the following brief:
 Title: ${brief.title}
