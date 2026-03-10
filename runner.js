@@ -2811,10 +2811,11 @@ async function runCopywriter(task) {
 
 // ─── Landing Page Builder ────────────────────────────────────────────────────
 
-async function generateLogoWithGemini(brandName) {
+async function generateLogoWithGemini(brandName, description = "") {
   if (!gemini) throw new Error("Gemini not configured");
-  console.log(`🎨 Generating logo for brand: ${brandName}`);
-  const prompt = `Create a clean, modern business logo for "${brandName}".
+  console.log(`🎨 Generating logo for brand: ${brandName}${description ? ` (${description})` : ""}`);
+  const descLine = description ? `\nStyle/description: ${description}` : "";
+  const prompt = `Create a clean, modern business logo for "${brandName}".${descLine}
 Requirements:
 - Simple wordmark or icon+wordmark style
 - Professional and premium look
@@ -4062,15 +4063,15 @@ async function handleRequest(req, res) {
   if (req.method === "POST" && url.pathname === "/generate-logo") {
     try {
       const body = await readJsonBody(req);
-      const { goalId, brandName } = body;
+      const { goalId, brandName, description } = body;
       if (!goalId || !brandName) {
         sendJson(res, 400, { ok: false, error: "Missing goalId or brandName" });
         return;
       }
       console.log(`🎨 /generate-logo: generating logo for "${brandName}" (goal: ${goalId})`);
 
-      // Generate logo with Gemini (returns data URL)
-      const dataUrl = await generateLogoWithGemini(brandName);
+      // Generate logo with Gemini
+      const dataUrl = await generateLogoWithGemini(brandName, description || "");
       const base64  = dataUrl.split(",")[1];
       const mimeType = dataUrl.match(/data:(image\/[\w+]+);/)?.[1] || "image/png";
 
