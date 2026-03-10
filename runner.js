@@ -1109,6 +1109,7 @@ function visualDirectorSchema() {
       },
       banner_brief: { type: "string" },
       landing_page_brief: { type: "string" },
+      landing_page_template: { type: "string", enum: ["dark_luxury", "bold_modern", "minimal_clean"] },
       video_brief: { type: "string" },
       image_prompts: {
         type: "array",
@@ -1129,6 +1130,7 @@ function visualDirectorSchema() {
       "color_palette",
       "banner_brief",
       "landing_page_brief",
+      "landing_page_template",
       "video_brief",
       "image_prompts",
       "banner_headlines",
@@ -1450,6 +1452,7 @@ async function generateVisualDirectionWithAI(task) {
     "image_prompts צריכים להיות prompts מוכנים ליצירת תמונות שיווקיות.",
     "banner_brief צריך להיות תיאור ברור לבאנרים.",
     "landing_page_brief צריך להסביר איך דף הנחיתה צריך להיראות ולהרגיש.",
+    "landing_page_template: בחר תבנית HTML לדף הנחיתה לפי הברייף: dark_luxury = נדל\"ן יוקרתי/השקעות/פרימיום, bold_modern = פרויקטים מודרניים/טכנולוגיה/קהל צעיר, minimal_clean = בוטיק/שירותים מקצועיים/עיצוב אלגנטי.",
     "video_brief צריך להיות כיוון קצר וברור לסרטון שיווקי.",
   ].join("\n\n");
   const ai = await createStructuredResponse({
@@ -1473,6 +1476,7 @@ async function generateVisualDirectionWithAI(task) {
       : [],
     banner_brief: normalizeText(ai.banner_brief),
     landing_page_brief: normalizeText(ai.landing_page_brief),
+    landing_page_template: normalizeText(ai.landing_page_template, "dark_luxury"),
     video_brief: normalizeText(ai.video_brief),
     image_prompts: Array.isArray(ai.image_prompts)
       ? ai.image_prompts.map((v) => normalizeText(v)).filter(Boolean)
@@ -2955,6 +2959,466 @@ Requirements:
   return `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`;
 }
 
+// ─── Landing page color helper ───────────────────────────────────────────────
+function buildColorsFromPalette(palette, scheme) {
+  // palette = array of hex strings from visual_director / banner_composer
+  // Try to extract bg, accent from the palette; fall back to scheme presets
+  const PRESETS = {
+    dark_luxury: {
+      bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
+      accentDark: "#a07830", text: "#f5f0e8", subtext: "#b0a898",
+      navBg: "rgba(10,10,15,0.95)", heroOverlay: "rgba(0,0,0,0.55)", dark: true,
+    },
+    bold_modern: {
+      bg: "#ffffff", cardBg: "#f4f6f9", accent: "#2563eb",
+      accentDark: "#1d4ed8", text: "#111827", subtext: "#6b7280",
+      navBg: "rgba(255,255,255,0.97)", heroOverlay: "rgba(15,23,42,0.52)", dark: false,
+    },
+    minimal_clean: {
+      bg: "#ffffff", cardBg: "#fafafa", accent: "#0f172a",
+      accentDark: "#1e293b", text: "#0f172a", subtext: "#64748b",
+      navBg: "rgba(255,255,255,0.97)", heroOverlay: "rgba(0,0,0,0.38)", dark: false,
+    },
+  };
+  const base = PRESETS[scheme] || PRESETS.dark_luxury;
+  if (!Array.isArray(palette) || palette.length < 3) return base;
+  // Heuristic: pick accent = most saturated/bright non-dark color from palette
+  const hexToRgb = h => {
+    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h);
+    return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : null;
+  };
+  const luminance = ([r,g,b]) => 0.2126*r + 0.7152*g + 0.0722*b;
+  const saturation = ([r,g,b]) => { const mx=Math.max(r,g,b),mn=Math.min(r,g,b); return mx===0?0:(mx-mn)/mx; };
+  const candidates = palette.map(h => ({ h, rgb: hexToRgb(h) })).filter(c => c.rgb);
+  // For dark templates: pick highest saturation color as accent
+  // For light templates: pick darkest saturated color as accent
+  const sorted = [...candidates].sort((a,b) => {
+    if (base.dark) return saturation(b.rgb) - saturation(a.rgb);
+    const scoreA = saturation(a.rgb) * 2 - luminance(a.rgb)/255;
+    const scoreB = saturation(b.rgb) * 2 - luminance(b.rgb)/255;
+    return scoreB - scoreA;
+  });
+  const accentHex = sorted[0]?.h || base.accent;
+  // Darken accent by ~15% for hover
+  const darken = hex => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    return '#' + rgb.map(v => Math.max(0, Math.round(v * 0.82)).toString(16).padStart(2,'0')).join('');
+  };
+  return { ...base, accent: accentHex, accentDark: darken(accentHex) };
+}
+
+// ─── Template: dark_luxury ───────────────────────────────────────────────────
+function renderTemplate_darkLuxury({ colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, statsBar, testimonialsSection, faqSection, contentSections, lang, dir, isHebrew }) {
+  const heroImage = images[0] || "";
+  const heroStyle = heroImage
+    ? `background-image: url('${heroImage}'); background-size: cover; background-position: center;`
+    : `background: linear-gradient(135deg, ${colors.bg} 0%, #1a1a2e 100%);`;
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title || brief.title}</title>
+  <meta name="description" content="${copy.meta_description || brief.context || ""}">
+  ${pixelScript}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans Hebrew',Arial,sans-serif;background:${colors.bg};color:${colors.text};direction:${dir};line-height:1.6;overflow-x:hidden}
+    .container{max-width:1100px;margin:0 auto;padding:0 24px}
+    nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.08);padding:14px 0}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between}
+    .nav-logo{height:48px;width:auto;object-fit:contain}
+    .nav-brand{font-size:1.3rem;font-weight:700;color:${colors.accent}}
+    .nav-phone{color:${colors.accent};font-size:1.05rem;font-weight:600;text-decoration:none}
+    .hero{position:relative;min-height:88vh;display:flex;align-items:center;${heroStyle}}
+    .hero::after{content:'';position:absolute;inset:0;background:${colors.heroOverlay}}
+    .hero-content{position:relative;z-index:1;padding:80px 0}
+    .hero-badge{display:inline-block;background:${colors.accent};color:#fff;font-size:0.8rem;font-weight:700;padding:5px 14px;border-radius:20px;margin-bottom:20px;text-transform:uppercase;letter-spacing:1px}
+    .hero-title{font-size:clamp(2rem,5vw,3.4rem);font-weight:800;line-height:1.2;color:#fff;margin-bottom:18px}
+    .hero-title span{color:${colors.accent}}
+    .hero-subtitle{font-size:clamp(1rem,2.5vw,1.3rem);color:rgba(255,255,255,0.85);margin-bottom:36px;max-width:600px}
+    .hero-cta-group{display:flex;gap:14px;flex-wrap:wrap}
+    .btn-primary{background:linear-gradient(135deg,${colors.accent},${colors.accentDark});color:#fff;border:none;padding:15px 32px;font-size:1.05rem;font-weight:700;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block;transition:transform 0.2s,box-shadow 0.2s}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+    .btn-secondary{background:transparent;color:#fff;border:2px solid rgba(255,255,255,0.5);padding:13px 28px;font-size:1rem;font-weight:600;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block;transition:all 0.2s}
+    .btn-secondary:hover{background:rgba(255,255,255,0.1);border-color:#fff}
+    .stats-bar{background:${colors.accent};padding:28px 0}
+    .stats-grid{display:flex;justify-content:space-around;flex-wrap:wrap;gap:20px}
+    .stat-item{text-align:center}
+    .stat-number{font-size:2rem;font-weight:800;color:#fff}
+    .stat-label{font-size:0.85rem;color:rgba(255,255,255,0.85);font-weight:500}
+    .section{padding:72px 0}
+    .alt-bg{background:${colors.cardBg}}
+    .section-flex{display:flex;align-items:center;gap:56px}
+    .section-flex.reverse{flex-direction:row-reverse}
+    .section-image{flex:1}
+    .section-image img{width:100%;border-radius:12px;object-fit:cover;max-height:380px}
+    .section-text{flex:1}
+    .section-title{font-size:clamp(1.5rem,3vw,2.2rem);font-weight:700;color:${colors.text};margin-bottom:16px;text-align:center}
+    .section-text .section-title{text-align:${dir === "rtl" ? "right" : "left"}}
+    .section-body{color:${colors.subtext};font-size:1.05rem;line-height:1.8;margin-bottom:16px}
+    .section-bullets{list-style:none;padding:0}
+    .section-bullets li{padding:8px 0;color:${colors.subtext};font-size:1rem;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px}
+    .section-bullets li::before{content:'✓';color:${colors.accent};font-weight:700;min-width:20px}
+    .form-section{background:${colors.cardBg};padding:80px 0}
+    .form-wrapper{max-width:560px;margin:0 auto;background:${colors.bg};border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:48px 40px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+    .form-title{font-size:1.8rem;font-weight:700;margin-bottom:8px;color:${colors.text};text-align:center}
+    .form-subtitle{color:${colors.subtext};margin-bottom:32px;text-align:center;font-size:0.95rem}
+    .form-group{margin-bottom:20px}
+    .form-group label{display:block;color:${colors.subtext};font-size:0.85rem;font-weight:600;margin-bottom:6px}
+    .form-input{width:100%;padding:13px 16px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:${colors.text};font-size:1rem;font-family:inherit;transition:border-color 0.2s}
+    .form-input:focus{outline:none;border-color:${colors.accent}}
+    .form-check{display:flex;align-items:center}
+    .check-label{display:flex;align-items:center;gap:10px;cursor:pointer;color:${colors.subtext}}
+    .form-submit{width:100%;padding:16px;background:linear-gradient(135deg,${colors.accent},${colors.accentDark});color:#fff;border:none;border-radius:8px;font-size:1.1rem;font-weight:700;cursor:pointer;margin-top:8px;transition:transform 0.2s,box-shadow 0.2s;font-family:inherit}
+    .form-submit:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.35)}
+    .form-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+    .success-msg{text-align:center;font-size:1.3rem;font-weight:700;color:${colors.accent};padding:48px 24px}
+    .testimonials-section{background:${colors.bg}}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;margin-top:40px}
+    .testimonial-card{background:${colors.cardBg};border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:28px 24px}
+    .stars{color:${colors.accent};font-size:1.1rem;margin-bottom:12px}
+    .testimonial-text{color:${colors.subtext};font-size:0.95rem;line-height:1.7;margin-bottom:14px}
+    .testimonial-author{color:${colors.text};font-weight:600;font-size:0.9rem}
+    .faq-section{background:${colors.cardBg}}
+    .faq-list{max-width:760px;margin:40px auto 0}
+    .faq-item{border-bottom:1px solid rgba(255,255,255,0.08);cursor:pointer}
+    .faq-question{display:flex;justify-content:space-between;align-items:center;padding:20px 0;font-weight:600;font-size:1rem;color:${colors.text}}
+    .faq-arrow{color:${colors.accent};transition:transform 0.3s;font-size:0.8rem}
+    .faq-answer{display:none;color:${colors.subtext};padding-bottom:20px;font-size:0.95rem;line-height:1.7}
+    .faq-answer.open{display:block}
+    footer{background:#05050a;border-top:1px solid rgba(255,255,255,0.06);padding:32px 0;text-align:center}
+    .footer-text{color:rgba(255,255,255,0.3);font-size:0.8rem;line-height:1.8}
+    .whatsapp-btn{position:fixed;bottom:28px;${dir === "rtl" ? "left:28px;" : "right:28px;"}background:#25d366;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(37,211,102,0.4);z-index:999;transition:transform 0.2s;text-decoration:none}
+    .whatsapp-btn:hover{transform:scale(1.1)}
+    @media(max-width:768px){.section-flex,.section-flex.reverse{flex-direction:column}.hero-cta-group{flex-direction:column}.btn-primary,.btn-secondary{text-align:center}.stats-grid{grid-template-columns:repeat(2,1fr)}.form-wrapper{padding:32px 20px}}
+  </style>
+</head>
+<body>
+  <nav><div class="container nav-inner"><div>${logoHtml}</div>${config.phone_in_nav ? `<a href="tel:${config.phone_in_nav.replace(/\s/g,'')}" class="nav-phone">${config.phone_in_nav}</a>` : ""}</div></nav>
+  <section class="hero"><div class="container hero-content">
+    ${copy.badge ? `<div class="hero-badge">${copy.badge}</div>` : ""}
+    <h1 class="hero-title">${copy.hero_title || brief.title}</h1>
+    <p class="hero-subtitle">${copy.hero_subtitle || brief.context || ""}</p>
+    <div class="hero-cta-group">
+      <a href="#lead-form" class="btn-primary">${copy.cta_primary || submitText}</a>
+      ${copy.cta_secondary ? `<a href="#content" class="btn-secondary">${copy.cta_secondary}</a>` : ""}
+    </div>
+  </div></section>
+  ${statsBar}
+  <div id="content">${contentSections}</div>
+  ${testimonialsSection}
+  ${faqSection}
+  <section class="form-section" id="lead-form"><div class="container"><div class="form-wrapper">
+    <h2 class="form-title">${copy.form_title || (isHebrew ? "השאירו פרטים" : "Get In Touch")}</h2>
+    <p class="form-subtitle">${copy.form_subtitle || (isHebrew ? "נציג יחזור אליכם בהקדם" : "We will get back to you shortly")}</p>
+    <div id="form-container"><form onsubmit="submitForm(event)" novalidate>${formFieldsHtml}<button type="submit" class="form-submit" id="submit-btn">${submitText}</button></form></div>
+  </div></div></section>
+  <footer><div class="container"><p class="footer-text">${copy.footer_disclaimer || brief.disclaimer || (isHebrew ? "המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד." : "Images for illustration only.")}</p></div></footer>
+  ${whatsappBtn}
+  <script>${zapierScript}
+    function toggleFaq(i){const el=document.getElementById('faq-'+i);const arrow=document.getElementById('arrow-'+i);if(el.classList.contains('open')){el.classList.remove('open');arrow.style.transform='rotate(0deg)'}else{document.querySelectorAll('.faq-answer').forEach(a=>a.classList.remove('open'));document.querySelectorAll('.faq-arrow').forEach(a=>a.style.transform='rotate(0deg)');el.classList.add('open');arrow.style.transform='rotate(180deg)'}}
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}})});
+  </script>
+</body></html>`;
+}
+
+// ─── Template: bold_modern ───────────────────────────────────────────────────
+function renderTemplate_boldModern({ colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, statsBar, testimonialsSection, faqSection, contentSections, lang, dir, isHebrew }) {
+  const heroImage = images[0] || "";
+  const contentImages = images.slice(1, 4);
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title || brief.title}</title>
+  <meta name="description" content="${copy.meta_description || brief.context || ""}">
+  ${pixelScript}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans Hebrew',Arial,sans-serif;background:${colors.bg};color:${colors.text};direction:${dir};line-height:1.6;overflow-x:hidden}
+    .container{max-width:1140px;margin:0 auto;padding:0 28px}
+    /* NAV */
+    nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(16px);border-bottom:3px solid ${colors.accent};padding:0}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+    .nav-logo{height:44px;width:auto;object-fit:contain}
+    .nav-brand{font-size:1.4rem;font-weight:800;color:${colors.text};letter-spacing:-0.5px}
+    .nav-brand span{color:${colors.accent}}
+    .nav-phone{background:${colors.accent};color:#fff;font-size:0.95rem;font-weight:700;text-decoration:none;padding:8px 20px;border-radius:6px;transition:opacity 0.2s}
+    .nav-phone:hover{opacity:0.88}
+    /* HERO — split layout */
+    .hero{min-height:90vh;display:grid;grid-template-columns:${dir === "rtl" ? "1fr 1fr" : "1fr 1fr"};align-items:stretch}
+    .hero-left{display:flex;flex-direction:column;justify-content:center;padding:80px 48px;background:${colors.bg};position:relative}
+    .hero-left::after{content:'';position:absolute;${dir === "rtl" ? "left:-24px" : "right:-24px"};top:0;bottom:0;width:48px;background:${colors.bg};clip-path:${dir === "rtl" ? "polygon(100% 0,0 50%,100% 100%)" : "polygon(0 0,100% 50%,0 100%)"};z-index:2}
+    .hero-right{position:relative;overflow:hidden;min-height:480px}
+    .hero-right img{width:100%;height:100%;object-fit:cover;display:block}
+    .hero-right-fallback{width:100%;height:100%;background:linear-gradient(135deg,${colors.accent}22,${colors.accent}44);display:flex;align-items:center;justify-content:center}
+    .hero-badge{display:inline-block;background:${colors.accent}18;color:${colors.accent};font-size:0.78rem;font-weight:800;padding:5px 14px;border-radius:4px;margin-bottom:24px;text-transform:uppercase;letter-spacing:1.5px;border:1px solid ${colors.accent}44}
+    .hero-title{font-size:clamp(2.2rem,4.5vw,3.8rem);font-weight:900;line-height:1.1;color:${colors.text};margin-bottom:20px;letter-spacing:-1px}
+    .hero-title span{color:${colors.accent}}
+    .hero-subtitle{font-size:clamp(1rem,2vw,1.2rem);color:${colors.subtext};margin-bottom:40px;max-width:520px;line-height:1.7}
+    .hero-cta-group{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+    .btn-primary{background:${colors.accent};color:#fff;border:none;padding:16px 36px;font-size:1.05rem;font-weight:800;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-block;transition:all 0.2s;letter-spacing:0.3px}
+    .btn-primary:hover{background:${colors.accentDark};transform:translateY(-1px);box-shadow:0 6px 20px ${colors.accent}44}
+    .btn-secondary{background:transparent;color:${colors.text};border:2px solid ${colors.text}22;padding:14px 28px;font-size:1rem;font-weight:600;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-block;transition:all 0.2s}
+    .btn-secondary:hover{border-color:${colors.accent};color:${colors.accent}}
+    /* STATS */
+    .stats-bar{background:${colors.accent};padding:24px 0}
+    .stats-grid{display:flex;justify-content:space-around;flex-wrap:wrap;gap:16px}
+    .stat-item{text-align:center}
+    .stat-number{font-size:2.2rem;font-weight:900;color:#fff;line-height:1}
+    .stat-label{font-size:0.82rem;color:rgba(255,255,255,0.8);font-weight:500;margin-top:4px}
+    /* SECTIONS */
+    .section{padding:80px 0}
+    .alt-bg{background:${colors.cardBg}}
+    .section-flex{display:flex;align-items:center;gap:60px}
+    .section-flex.reverse{flex-direction:row-reverse}
+    .section-image{flex:1}
+    .section-image img{width:100%;border-radius:8px;object-fit:cover;max-height:360px;box-shadow:0 12px 40px rgba(0,0,0,0.1)}
+    .section-text{flex:1}
+    .section-title{font-size:clamp(1.6rem,3vw,2.4rem);font-weight:800;color:${colors.text};margin-bottom:16px;text-align:center;letter-spacing:-0.5px}
+    .section-text .section-title{text-align:${dir === "rtl" ? "right" : "left"}}
+    .section-body{color:${colors.subtext};font-size:1.05rem;line-height:1.8;margin-bottom:16px}
+    .section-bullets{list-style:none;padding:0}
+    .section-bullets li{padding:10px 0;color:${colors.text};font-size:0.97rem;border-bottom:1px solid ${colors.text}0f;display:flex;align-items:center;gap:12px;font-weight:500}
+    .section-bullets li::before{content:'→';color:${colors.accent};font-weight:800;min-width:20px}
+    /* FORM — clean card */
+    .form-section{background:${colors.cardBg};padding:80px 0}
+    .form-wrapper{max-width:580px;margin:0 auto;background:#fff;border-radius:12px;padding:52px 44px;box-shadow:0 8px 48px rgba(0,0,0,0.1);border-top:4px solid ${colors.accent}}
+    .form-title{font-size:1.9rem;font-weight:800;margin-bottom:8px;color:${colors.text};text-align:center;letter-spacing:-0.5px}
+    .form-subtitle{color:${colors.subtext};margin-bottom:36px;text-align:center;font-size:0.95rem}
+    .form-group{margin-bottom:20px}
+    .form-group label{display:block;color:${colors.text};font-size:0.82rem;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px}
+    .form-input{width:100%;padding:13px 16px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:6px;color:${colors.text};font-size:1rem;font-family:inherit;transition:border-color 0.2s}
+    .form-input:focus{outline:none;border-color:${colors.accent};background:#fff}
+    .check-label{display:flex;align-items:center;gap:10px;cursor:pointer;color:${colors.subtext};font-size:0.92rem}
+    .form-submit{width:100%;padding:16px;background:${colors.accent};color:#fff;border:none;border-radius:6px;font-size:1.1rem;font-weight:800;cursor:pointer;margin-top:8px;transition:all 0.2s;font-family:inherit;letter-spacing:0.3px}
+    .form-submit:hover{background:${colors.accentDark};transform:translateY(-1px);box-shadow:0 6px 20px ${colors.accent}44}
+    .form-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+    .success-msg{text-align:center;font-size:1.3rem;font-weight:700;color:${colors.accent};padding:48px 24px}
+    /* TESTIMONIALS */
+    .testimonials-section{background:${colors.bg}}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;margin-top:40px}
+    .testimonial-card{background:#fff;border:1px solid ${colors.text}0f;border-radius:10px;padding:28px 24px;box-shadow:0 4px 20px rgba(0,0,0,0.06)}
+    .stars{color:${colors.accent};font-size:1rem;margin-bottom:12px}
+    .testimonial-text{color:${colors.subtext};font-size:0.95rem;line-height:1.7;margin-bottom:14px}
+    .testimonial-author{color:${colors.text};font-weight:700;font-size:0.88rem}
+    /* FAQ */
+    .faq-section{background:${colors.cardBg}}
+    .faq-list{max-width:760px;margin:40px auto 0}
+    .faq-item{border-bottom:1.5px solid ${colors.text}10;cursor:pointer}
+    .faq-question{display:flex;justify-content:space-between;align-items:center;padding:20px 0;font-weight:700;font-size:1rem;color:${colors.text}}
+    .faq-arrow{color:${colors.accent};transition:transform 0.3s;font-size:0.8rem}
+    .faq-answer{display:none;color:${colors.subtext};padding-bottom:20px;font-size:0.95rem;line-height:1.7}
+    .faq-answer.open{display:block}
+    /* FOOTER */
+    footer{background:${colors.text};padding:32px 0;text-align:center}
+    .footer-text{color:rgba(255,255,255,0.4);font-size:0.8rem;line-height:1.8}
+    /* WHATSAPP */
+    .whatsapp-btn{position:fixed;bottom:28px;${dir === "rtl" ? "left:28px;" : "right:28px;"}background:#25d366;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(37,211,102,0.4);z-index:999;transition:transform 0.2s;text-decoration:none}
+    .whatsapp-btn:hover{transform:scale(1.1)}
+    @media(max-width:900px){.hero{grid-template-columns:1fr}.hero-right{min-height:320px}.hero-left::after{display:none}}
+    @media(max-width:768px){.section-flex,.section-flex.reverse{flex-direction:column}.hero-left{padding:48px 24px}.hero-cta-group{flex-direction:column}.form-wrapper{padding:32px 20px}.stats-grid{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+  <nav><div class="container nav-inner">
+    <div>${logoHtml}</div>
+    ${config.phone_in_nav ? `<a href="tel:${config.phone_in_nav.replace(/\s/g,'')}" class="nav-phone">${config.phone_in_nav}</a>` : ""}
+  </div></nav>
+  <section class="hero" id="top">
+    <div class="hero-left">
+      ${copy.badge ? `<div class="hero-badge">${copy.badge}</div>` : ""}
+      <h1 class="hero-title">${copy.hero_title || brief.title}</h1>
+      <p class="hero-subtitle">${copy.hero_subtitle || brief.context || ""}</p>
+      <div class="hero-cta-group">
+        <a href="#lead-form" class="btn-primary">${copy.cta_primary || submitText}</a>
+        ${copy.cta_secondary ? `<a href="#content" class="btn-secondary">${copy.cta_secondary}</a>` : ""}
+      </div>
+    </div>
+    <div class="hero-right">${heroImage ? `<img src="${heroImage}" alt="${brief.title}" loading="eager">` : `<div class="hero-right-fallback"></div>`}</div>
+  </section>
+  ${statsBar}
+  <div id="content">${contentSections}</div>
+  ${testimonialsSection}
+  ${faqSection}
+  <section class="form-section" id="lead-form"><div class="container"><div class="form-wrapper">
+    <h2 class="form-title">${copy.form_title || (isHebrew ? "השאירו פרטים" : "Get In Touch")}</h2>
+    <p class="form-subtitle">${copy.form_subtitle || (isHebrew ? "נציג יחזור אליכם בהקדם" : "We will get back to you shortly")}</p>
+    <div id="form-container"><form onsubmit="submitForm(event)" novalidate>${formFieldsHtml}<button type="submit" class="form-submit" id="submit-btn">${submitText}</button></form></div>
+  </div></div></section>
+  <footer><div class="container"><p class="footer-text">${copy.footer_disclaimer || brief.disclaimer || (isHebrew ? "המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד." : "Images for illustration only.")}</p></div></footer>
+  ${whatsappBtn}
+  <script>${zapierScript}
+    function toggleFaq(i){const el=document.getElementById('faq-'+i);const arrow=document.getElementById('arrow-'+i);if(el.classList.contains('open')){el.classList.remove('open');arrow.style.transform='rotate(0deg)'}else{document.querySelectorAll('.faq-answer').forEach(a=>a.classList.remove('open'));document.querySelectorAll('.faq-arrow').forEach(a=>a.style.transform='rotate(0deg)');el.classList.add('open');arrow.style.transform='rotate(180deg)'}}
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}})});
+  </script>
+</body></html>`;
+}
+
+// ─── Template: minimal_clean ─────────────────────────────────────────────────
+function renderTemplate_minimalClean({ colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, statsBar, testimonialsSection, faqSection, lang, dir, isHebrew }) {
+  const heroImage = images[0] || "";
+  const contentImages = images.slice(1, 4);
+  const accentRgb = (() => { const m = colors.accent.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i); return m ? `${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)}` : "15,23,42"; })();
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title || brief.title}</title>
+  <meta name="description" content="${copy.meta_description || brief.context || ""}">
+  ${pixelScript}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans Hebrew',Arial,sans-serif;background:#fff;color:${colors.text};direction:${dir};line-height:1.7;overflow-x:hidden}
+    .container{max-width:860px;margin:0 auto;padding:0 32px}
+    .container-wide{max-width:1080px;margin:0 auto;padding:0 32px}
+    /* NAV */
+    nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,0.97);backdrop-filter:blur(16px);border-bottom:1px solid #f0f0f0;padding:0}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
+    .nav-logo{height:40px;width:auto;object-fit:contain}
+    .nav-brand{font-size:1.25rem;font-weight:600;color:${colors.text};letter-spacing:-0.3px}
+    .nav-phone{color:${colors.accent};font-size:0.95rem;font-weight:600;text-decoration:none;border-bottom:2px solid ${colors.accent};padding-bottom:2px}
+    /* HERO — centered editorial style */
+    .hero{padding:100px 0 60px;text-align:center;position:relative;overflow:hidden}
+    .hero-line{width:48px;height:3px;background:${colors.accent};margin:0 auto 28px;border-radius:2px}
+    .hero-badge{display:inline-block;color:${colors.accent};font-size:0.78rem;font-weight:700;margin-bottom:16px;text-transform:uppercase;letter-spacing:2px}
+    .hero-title{font-size:clamp(2rem,4.5vw,3.6rem);font-weight:700;line-height:1.15;color:${colors.text};margin-bottom:24px;letter-spacing:-1px}
+    .hero-title em{font-style:normal;color:${colors.accent}}
+    .hero-subtitle{font-size:clamp(1rem,2vw,1.2rem);color:${colors.subtext};margin-bottom:44px;max-width:580px;margin-left:auto;margin-right:auto;font-weight:400}
+    .hero-cta-group{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+    .btn-primary{background:${colors.accent};color:#fff;border:none;padding:14px 36px;font-size:1rem;font-weight:600;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;transition:all 0.2s}
+    .btn-primary:hover{background:${colors.accentDark};box-shadow:0 4px 16px rgba(${accentRgb},0.3)}
+    .btn-secondary{background:transparent;color:${colors.text};border:1.5px solid #d1d5db;padding:13px 28px;font-size:1rem;font-weight:500;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;transition:all 0.2s}
+    .btn-secondary:hover{border-color:${colors.accent};color:${colors.accent}}
+    /* HERO IMAGE STRIP */
+    .hero-image-strip{margin:64px 0 0;overflow:hidden;border-radius:12px;max-height:480px}
+    .hero-image-strip img{width:100%;height:480px;object-fit:cover;display:block}
+    /* STATS */
+    .stats-bar{border-top:1px solid #f0f0f0;border-bottom:1px solid #f0f0f0;padding:40px 0;margin:60px 0}
+    .stats-grid{display:flex;justify-content:space-around;flex-wrap:wrap;gap:24px}
+    .stat-item{text-align:center}
+    .stat-number{font-size:2.4rem;font-weight:700;color:${colors.accent};letter-spacing:-1px;line-height:1}
+    .stat-label{font-size:0.82rem;color:${colors.subtext};margin-top:4px;font-weight:500}
+    /* SECTIONS */
+    .section{padding:72px 0}
+    .alt-bg{background:#fafafa}
+    .section-divider{width:40px;height:2px;background:${colors.accent};margin:0 auto 16px;border-radius:1px}
+    .section-flex{display:flex;align-items:center;gap:60px}
+    .section-flex.reverse{flex-direction:row-reverse}
+    .section-image{flex:1}
+    .section-image img{width:100%;border-radius:8px;object-fit:cover;max-height:360px}
+    .section-text{flex:1}
+    .section-title{font-size:clamp(1.4rem,2.5vw,2rem);font-weight:700;color:${colors.text};margin-bottom:16px;text-align:center;letter-spacing:-0.3px}
+    .section-text .section-title{text-align:${dir === "rtl" ? "right" : "left"}}
+    .section-body{color:${colors.subtext};font-size:1rem;line-height:1.8;margin-bottom:16px}
+    .section-bullets{list-style:none;padding:0}
+    .section-bullets li{padding:9px 0;color:${colors.subtext};font-size:0.95rem;border-bottom:1px solid #f0f0f0;display:flex;align-items:flex-start;gap:10px}
+    .section-bullets li::before{content:'·';color:${colors.accent};font-weight:900;font-size:1.4rem;line-height:1;min-width:16px}
+    /* FORM */
+    .form-section{background:#fafafa;padding:80px 0}
+    .form-wrapper{max-width:520px;margin:0 auto;background:#fff;border-radius:8px;padding:52px 44px;border:1px solid #e5e7eb}
+    .form-title{font-size:1.7rem;font-weight:700;margin-bottom:8px;color:${colors.text};text-align:center;letter-spacing:-0.5px}
+    .form-subtitle{color:${colors.subtext};margin-bottom:36px;text-align:center;font-size:0.92rem}
+    .form-group{margin-bottom:20px}
+    .form-group label{display:block;color:${colors.text};font-size:0.82rem;font-weight:600;margin-bottom:7px}
+    .form-input{width:100%;padding:12px 16px;background:#fff;border:1px solid #d1d5db;border-radius:4px;color:${colors.text};font-size:0.97rem;font-family:inherit;transition:border-color 0.2s}
+    .form-input:focus{outline:none;border-color:${colors.accent};box-shadow:0 0 0 3px rgba(${accentRgb},0.1)}
+    .check-label{display:flex;align-items:center;gap:10px;cursor:pointer;color:${colors.subtext};font-size:0.9rem}
+    .form-submit{width:100%;padding:14px;background:${colors.accent};color:#fff;border:none;border-radius:4px;font-size:1.05rem;font-weight:700;cursor:pointer;margin-top:8px;transition:all 0.2s;font-family:inherit}
+    .form-submit:hover{background:${colors.accentDark};box-shadow:0 4px 16px rgba(${accentRgb},0.3)}
+    .form-submit:disabled{opacity:0.55;cursor:not-allowed;box-shadow:none}
+    .success-msg{text-align:center;font-size:1.2rem;font-weight:600;color:${colors.accent};padding:48px 24px}
+    /* TESTIMONIALS */
+    .testimonials-section{background:#fff;padding:72px 0}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;margin-top:40px}
+    .testimonial-card{background:#fafafa;border:1px solid #f0f0f0;border-radius:8px;padding:28px 24px}
+    .stars{color:${colors.accent};font-size:1rem;margin-bottom:12px;letter-spacing:2px}
+    .testimonial-text{color:${colors.subtext};font-size:0.93rem;line-height:1.7;margin-bottom:14px}
+    .testimonial-author{color:${colors.text};font-weight:600;font-size:0.88rem}
+    /* FAQ */
+    .faq-section{background:#fafafa;padding:72px 0}
+    .faq-list{max-width:700px;margin:40px auto 0}
+    .faq-item{border-bottom:1px solid #f0f0f0;cursor:pointer}
+    .faq-question{display:flex;justify-content:space-between;align-items:center;padding:20px 0;font-weight:600;font-size:0.97rem;color:${colors.text}}
+    .faq-arrow{color:${colors.accent};transition:transform 0.3s;font-size:0.8rem}
+    .faq-answer{display:none;color:${colors.subtext};padding-bottom:20px;font-size:0.92rem;line-height:1.75}
+    .faq-answer.open{display:block}
+    /* FOOTER */
+    footer{border-top:1px solid #f0f0f0;padding:40px 0;text-align:center;background:#fff}
+    .footer-text{color:#b0b8c4;font-size:0.78rem;line-height:1.8}
+    /* WHATSAPP */
+    .whatsapp-btn{position:fixed;bottom:28px;${dir === "rtl" ? "left:28px;" : "right:28px;"}background:#25d366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(37,211,102,0.35);z-index:999;transition:transform 0.2s;text-decoration:none}
+    .whatsapp-btn:hover{transform:scale(1.08)}
+    @media(max-width:768px){.section-flex,.section-flex.reverse{flex-direction:column}.hero{padding:72px 0 40px}.hero-cta-group{flex-direction:column;align-items:center}.form-wrapper{padding:32px 20px}.stats-grid{grid-template-columns:repeat(2,1fr)}.hero-image-strip img{height:240px}}
+  </style>
+</head>
+<body>
+  <nav><div class="container-wide nav-inner">
+    <div>${logoHtml}</div>
+    ${config.phone_in_nav ? `<a href="tel:${config.phone_in_nav.replace(/\s/g,'')}" class="nav-phone">${config.phone_in_nav}</a>` : ""}
+  </div></nav>
+  <section class="hero">
+    <div class="container">
+      <div class="hero-line"></div>
+      ${copy.badge ? `<div class="hero-badge">${copy.badge}</div>` : ""}
+      <h1 class="hero-title">${copy.hero_title || brief.title}</h1>
+      <p class="hero-subtitle">${copy.hero_subtitle || brief.context || ""}</p>
+      <div class="hero-cta-group">
+        <a href="#lead-form" class="btn-primary">${copy.cta_primary || submitText}</a>
+        ${copy.cta_secondary ? `<a href="#content" class="btn-secondary">${copy.cta_secondary}</a>` : ""}
+      </div>
+    </div>
+    ${heroImage ? `<div class="container"><div class="hero-image-strip"><img src="${heroImage}" alt="${brief.title}" loading="eager"></div></div>` : ""}
+  </section>
+  <div class="container">${statsBar ? statsBar.replace('class="stats-bar"', 'class="stats-bar" style="border:none;padding:0;margin:0"') : ""}</div>
+  <div id="content">
+    ${contentImages.map((img, i) => `
+    <section class="section ${i % 2 === 1 ? "alt-bg" : ""}">
+      <div class="container">
+        <div class="section-flex ${i % 2 === 1 ? "reverse" : ""}">
+          <div class="section-image"><img src="${img}" alt="" loading="lazy"></div>
+          <div class="section-text">
+            ${copy.sections?.[i]?.title ? `<div class="section-divider"></div><h2 class="section-title" style="text-align:${dir==="rtl"?"right":"left"}">${copy.sections[i].title}</h2>` : ""}
+            ${copy.sections?.[i]?.body ? `<p class="section-body">${copy.sections[i].body}</p>` : ""}
+            ${copy.sections?.[i]?.bullets ? `<ul class="section-bullets">${copy.sections[i].bullets.map(b=>`<li>${b}</li>`).join("")}</ul>` : ""}
+          </div>
+        </div>
+      </div>
+    </section>`).join("")}
+    ${contentImages.length === 0 && copy.sections ? copy.sections.map((sec, i) => `
+    <section class="section ${i % 2 === 1 ? "alt-bg" : ""}"><div class="container">
+      ${sec.title ? `<div class="section-divider"></div><h2 class="section-title">${sec.title}</h2>` : ""}
+      ${sec.body ? `<p class="section-body" style="text-align:center;max-width:640px;margin:0 auto 16px">${sec.body}</p>` : ""}
+      ${sec.bullets ? `<ul class="section-bullets" style="max-width:560px;margin:0 auto">${sec.bullets.map(b=>`<li>${b}</li>`).join("")}</ul>` : ""}
+    </div></section>`).join("") : ""}
+  </div>
+  ${testimonialsSection}
+  ${faqSection}
+  <section class="form-section" id="lead-form"><div class="container"><div class="form-wrapper">
+    <h2 class="form-title">${copy.form_title || (isHebrew ? "השאירו פרטים" : "Get In Touch")}</h2>
+    <p class="form-subtitle">${copy.form_subtitle || (isHebrew ? "נציג יחזור אליכם בהקדם" : "We will get back to you shortly")}</p>
+    <div id="form-container"><form onsubmit="submitForm(event)" novalidate>${formFieldsHtml}<button type="submit" class="form-submit" id="submit-btn">${submitText}</button></form></div>
+  </div></div></section>
+  <footer><div class="container"><p class="footer-text">${copy.footer_disclaimer || brief.disclaimer || (isHebrew ? "המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד." : "Images for illustration only.")}</p></div></footer>
+  ${whatsappBtn}
+  <script>${zapierScript}
+    function toggleFaq(i){const el=document.getElementById('faq-'+i);const arrow=document.getElementById('arrow-'+i);if(el.classList.contains('open')){el.classList.remove('open');arrow.style.transform='rotate(0deg)'}else{document.querySelectorAll('.faq-answer').forEach(a=>a.classList.remove('open'));document.querySelectorAll('.faq-arrow').forEach(a=>a.style.transform='rotate(0deg)');el.classList.add('open');arrow.style.transform='rotate(180deg)'}}
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}})});
+  </script>
+</body></html>`;
+}
+
+
 async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl, config }) {
   if (!openai) throw new Error("OpenAI not configured for landing page generation");
 
@@ -2981,77 +3445,54 @@ async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl,
   const whatsappMessage = config.whatsapp_message || (isHebrew ? "שלום, אני מעוניין לקבל מידע נוסף" : "Hello, I would like more information");
   const phoneInNav = config.phone_in_nav || "";
   const pageSlug = config.page_slug || "landing";
-  const colorScheme = config.color_scheme || "dark_luxury";
+  const template = config.template || "dark_luxury";
+  const colors = buildColorsFromPalette(config.color_palette, template);
 
-  // Color scheme presets
-  const colors = {
-    dark_luxury: {
-      bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
-      accentDark: "#a07830", text: "#f5f0e8", subtext: "#b0a898",
-      navBg: "rgba(10,10,15,0.95)", heroOverlay: "rgba(0,0,0,0.55)",
-    },
-    light_modern: {
-      bg: "#f8f9fa", cardBg: "#ffffff", accent: "#2563eb",
-      accentDark: "#1d4ed8", text: "#111827", subtext: "#6b7280",
-      navBg: "rgba(255,255,255,0.95)", heroOverlay: "rgba(0,0,0,0.40)",
-    },
-    green_health: {
-      bg: "#f0fdf4", cardBg: "#ffffff", accent: "#16a34a",
-      accentDark: "#15803d", text: "#14532d", subtext: "#4b7a5a",
-      navBg: "rgba(240,253,244,0.95)", heroOverlay: "rgba(0,0,0,0.45)",
-    },
-  }[colorScheme] || colors?.dark_luxury || {
-    bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
-    accentDark: "#a07830", text: "#f5f0e8", subtext: "#b0a898",
-    navBg: "rgba(10,10,15,0.95)", heroOverlay: "rgba(0,0,0,0.55)",
-  };
+  console.log(\`🎨 Landing page: template=\${template}, accent=\${colors.accent}\`);
 
-  // Prepare images for HTML
+  // Build shared HTML pieces
   const heroImage = images[0] || "";
   const contentImages = images.slice(1, 4);
 
-  // Generate form fields HTML
+  const formFields = (config.form_fields && config.form_fields.length > 0) ? config.form_fields : [
+    { label: isHebrew ? "שם מלא" : "Full Name", type: "text", name: "name", required: true },
+    { label: isHebrew ? "טלפון" : "Phone", type: "tel", name: "phone", required: true },
+    { label: isHebrew ? "אימייל" : "Email", type: "email", name: "email", required: false },
+  ];
+  const submitText = config.submit_button_text || (isHebrew ? "שלח פרטים" : "Send Details");
+
   const formFieldsHtml = formFields.map(f => {
-    const req = f.required ? 'required' : '';
-    const reqMark = f.required ? '<span style="color:#e74c3c">*</span>' : '';
+    const req = f.required ? "required" : "";
+    const reqMark = f.required ? '<span style="color:#e74c3c">*</span>' : "";
     if (f.type === "select" && Array.isArray(f.options)) {
       const opts = f.options.map(o => `<option value="${o}">${o}</option>`).join("");
-      return `<div class="form-group"><label>${f.label} ${reqMark}</label>
-        <select name="${f.name || f.label}" ${req} class="form-input"><option value="">בחר...</option>${opts}</select></div>`;
+      return `<div class="form-group"><label>${f.label} ${reqMark}</label><select name="${f.name || f.label}" ${req} class="form-input"><option value="">בחר...</option>${opts}</select></div>`;
     }
     if (f.type === "checkbox") {
-      return `<div class="form-group form-check"><label class="check-label">
-        <input type="checkbox" name="${f.name || f.label}" ${req}> ${f.label} ${reqMark}</label></div>`;
+      return `<div class="form-group form-check"><label class="check-label"><input type="checkbox" name="${f.name || f.label}" ${req}> ${f.label} ${reqMark}</label></div>`;
     }
-    return `<div class="form-group"><label>${f.label} ${reqMark}</label>
-      <input type="${f.type || 'text'}" name="${f.name || f.label}" placeholder="${f.placeholder || f.label}" ${req} class="form-input"></div>`;
+    return `<div class="form-group"><label>${f.label} ${reqMark}</label><input type="${f.type || "text"}" name="${f.name || f.label}" placeholder="${f.placeholder || f.label}" ${req} class="form-input"></div>`;
   }).join("\n");
 
-  // Zapier submit script
+  const zapierWebhook = config.zapier_webhook_url || "";
+  const redirectUrl = config.redirect_url || "";
+  const metaPixelId = config.meta_pixel_id || "";
+  const pageSlug = config.page_slug || "landing";
+  const whatsappEnabled = config.whatsapp_enabled !== false && config.whatsapp_number;
+  const whatsappNumber = config.whatsapp_number || "";
+  const whatsappMessage = config.whatsapp_message || (isHebrew ? "שלום, אני מעוניין לקבל מידע נוסף" : "Hello, I would like more information");
+
   const zapierScript = zapierWebhook ? `
     async function submitForm(e) {
       e.preventDefault();
       const btn = document.getElementById('submit-btn');
-      btn.disabled = true;
-      btn.textContent = '${isHebrew ? "שולח..." : "Sending..."}';
-      const form = e.target;
-      const data = {};
+      btn.disabled = true; btn.textContent = '${isHebrew ? "שולח..." : "Sending..."}';
+      const form = e.target; const data = {};
       new FormData(form).forEach((v, k) => { data[k] = v; });
-      // UTM passthrough
       const params = new URLSearchParams(window.location.search);
-      ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(p => {
-        if (params.get(p)) data[p] = params.get(p);
-      });
-      data.page_slug = '${pageSlug}';
-      data.submitted_at = new Date().toISOString();
-      try {
-        await fetch('${zapierWebhook}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-          mode: 'no-cors'
-        });
-      } catch(err) { console.error('Zapier error:', err); }
+      ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(p => { if (params.get(p)) data[p] = params.get(p); });
+      data.page_slug = '${pageSlug}'; data.submitted_at = new Date().toISOString();
+      try { await fetch('${zapierWebhook}', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data), mode: 'no-cors' }); } catch(err) {}
       document.getElementById('form-container').innerHTML = '<div class="success-msg">${isHebrew ? "תודה! נציג יחזור אליך בהקדם 🎉" : "Thank you! We will be in touch soon 🎉"}</div>';
       ${redirectUrl ? `setTimeout(() => { window.location.href = '${redirectUrl}'; }, 2000);` : ""}
     }` : `
@@ -3061,414 +3502,29 @@ async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl,
       ${redirectUrl ? `setTimeout(() => { window.location.href = '${redirectUrl}'; }, 2000);` : ""}
     }`;
 
-  // Meta Pixel
-  const pixelScript = metaPixelId ? `
-  <!-- Meta Pixel -->
-  <script>
-    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '${metaPixelId}');
-    fbq('track', 'PageView');
-  </\script>
-  <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${metaPixelId}&ev=PageView&noscript=1"/></noscript>` : "";
+  const pixelScript = metaPixelId ? `<!-- Meta Pixel --><script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${metaPixelId}');fbq('track','PageView');<\/script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${metaPixelId}&ev=PageView&noscript=1"/></noscript>` : "";
 
-  // WhatsApp button
-  const whatsappBtn = whatsappEnabled ? `
-  <a href="https://wa.me/${whatsappNumber.replace(/\D/g,'')}?text=${encodeURIComponent(whatsappMessage)}"
-     class="whatsapp-btn" target="_blank" rel="noopener" title="WhatsApp">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-    </svg>
-  </a>` : "";
+  const whatsappBtn = whatsappEnabled ? `<a href="https://wa.me/${whatsappNumber.replace(/\D/g,"")}?text=${encodeURIComponent(whatsappMessage)}" class="whatsapp-btn" target="_blank" rel="noopener"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg></a>` : "";
 
-  // Testimonials section
-  const testimonialsSection = config.show_testimonials !== false && copy.testimonials ? `
-  <section class="section testimonials-section">
-    <div class="container">
-      <h2 class="section-title">${isHebrew ? "מה לקוחותינו אומרים" : "What Our Clients Say"}</h2>
-      <div class="testimonials-grid">
-        ${copy.testimonials.map(t => `
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <p class="testimonial-text">"${t.text}"</p>
-          <p class="testimonial-author">— ${t.author}</p>
-        </div>`).join("")}
-      </div>
-    </div>
-  </section>` : "";
-
-  // FAQ section
-  const faqSection = config.show_faq !== false && copy.faq ? `
-  <section class="section faq-section">
-    <div class="container">
-      <h2 class="section-title">${isHebrew ? "שאלות נפוצות" : "Frequently Asked Questions"}</h2>
-      <div class="faq-list">
-        ${copy.faq.map((item, i) => `
-        <div class="faq-item" onclick="toggleFaq(${i})">
-          <div class="faq-question">
-            <span>${item.question}</span>
-            <span class="faq-arrow" id="arrow-${i}">▼</span>
-          </div>
-          <div class="faq-answer" id="faq-${i}">${item.answer}</div>
-        </div>`).join("")}
-      </div>
-    </div>
-  </section>` : "";
-
-  // Stats bar
-  const statsBar = config.show_stats !== false && copy.stats ? `
-  <section class="stats-bar">
-    <div class="container stats-grid">
-      ${copy.stats.map(s => `
-      <div class="stat-item">
-        <div class="stat-number">${s.value}</div>
-        <div class="stat-label">${s.label}</div>
-      </div>`).join("")}
-    </div>
-  </section>` : "";
-
-  // Logo HTML
   const logoHtml = logoDataUrl
     ? `<img src="${logoDataUrl}" alt="${brief.title}" class="nav-logo">`
     : logoUrl
     ? `<img src="${logoUrl}" alt="${brief.title}" class="nav-logo">`
     : `<span class="nav-brand">${brief.brand_name || brief.title}</span>`;
 
-  // Content sections with images
-  const contentSections = copy.sections ? copy.sections.map((sec, i) => `
-  <section class="section content-section ${i % 2 === 1 ? "alt-bg" : ""}">
-    <div class="container section-flex ${i % 2 === 1 ? "reverse" : ""}">
-      ${contentImages[i] ? `<div class="section-image"><img src="${contentImages[i]}" alt="${sec.title || ""}" loading="lazy"></div>` : ""}
-      <div class="section-text">
-        ${sec.title ? `<h2 class="section-title">${sec.title}</h2>` : ""}
-        ${sec.body ? `<p class="section-body">${sec.body}</p>` : ""}
-        ${sec.bullets ? `<ul class="section-bullets">${sec.bullets.map(b => `<li>${b}</li>`).join("")}</ul>` : ""}
-      </div>
-    </div>
-  </section>`).join("") : "";
+  const statsBar = config.show_stats !== false && copy.stats ? `<section class="stats-bar"><div class="container stats-grid">${copy.stats.map(s => `<div class="stat-item"><div class="stat-number">${s.value}</div><div class="stat-label">${s.label}</div></div>`).join("")}</div></section>` : "";
 
-  // Hero section
-  const heroStyle = heroImage
-    ? `background-image: url('${heroImage}'); background-size: cover; background-position: center;`
-    : `background: linear-gradient(135deg, ${colors.bg} 0%, ${colors.cardBg} 100%);`;
+  const testimonialsSection = config.show_testimonials !== false && copy.testimonials ? `<section class="testimonials-section section"><div class="container"><h2 class="section-title">${isHebrew ? "מה לקוחותינו אומרים" : "What Our Clients Say"}</h2><div class="testimonials-grid">${copy.testimonials.map(t => `<div class="testimonial-card"><div class="stars">★★★★★</div><p class="testimonial-text">"${t.text}"</p><p class="testimonial-author">— ${t.author}</p></div>`).join("")}</div></div></section>` : "";
 
-  const html = `<!DOCTYPE html>
-<html lang="${lang}" dir="${dir}">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${copy.page_title || brief.title}</title>
-  <meta name="description" content="${copy.meta_description || brief.context || ""}">
-  ${metaPixelId ? pixelScript : ""}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: 'Noto Sans Hebrew', Arial, sans-serif;
-      background: ${colors.bg};
-      color: ${colors.text};
-      direction: ${dir};
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  const faqSection = config.show_faq !== false && copy.faq ? `<section class="faq-section section"><div class="container"><h2 class="section-title">${isHebrew ? "שאלות נפוצות" : "Frequently Asked Questions"}</h2><div class="faq-list">${copy.faq.map((item, i) => `<div class="faq-item" onclick="toggleFaq(${i})"><div class="faq-question"><span>${item.question}</span><span class="faq-arrow" id="arrow-${i}">▼</span></div><div class="faq-answer" id="faq-${i}">${item.answer}</div></div>`).join("")}</div></div></section>` : "";
 
-    /* NAV */
-    nav {
-      position: sticky; top: 0; z-index: 100;
-      background: ${colors.navBg};
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      padding: 14px 0;
-    }
-    .nav-inner { display: flex; align-items: center; justify-content: space-between; }
-    .nav-logo { height: 48px; width: auto; object-fit: contain; }
-    .nav-brand { font-size: 1.3rem; font-weight: 700; color: ${colors.accent}; }
-    .nav-phone { color: ${colors.accent}; font-size: 1.05rem; font-weight: 600; text-decoration: none; letter-spacing: 0.5px; }
+  const contentSections = copy.sections ? copy.sections.map((sec, i) => `<section class="section content-section ${i % 2 === 1 ? "alt-bg" : ""}"><div class="container"><div class="section-flex ${i % 2 === 1 ? "reverse" : ""}">${contentImages[i] ? `<div class="section-image"><img src="${contentImages[i]}" alt="${sec.title || ""}" loading="lazy"></div>` : ""}<div class="section-text">${sec.title ? `<h2 class="section-title">${sec.title}</h2>` : ""}${sec.body ? `<p class="section-body">${sec.body}</p>` : ""}${sec.bullets ? `<ul class="section-bullets">${sec.bullets.map(b => `<li>${b}</li>`).join("")}</ul>` : ""}</div></div></div></section>`).join("") : "";
 
-    /* HERO */
-    .hero {
-      position: relative; min-height: 88vh;
-      display: flex; align-items: center;
-      ${heroStyle}
-    }
-    .hero::after {
-      content: ''; position: absolute; inset: 0;
-      background: ${colors.heroOverlay};
-    }
-    .hero-content { position: relative; z-index: 1; padding: 80px 0; }
-    .hero-badge {
-      display: inline-block; background: ${colors.accent};
-      color: #fff; font-size: 0.8rem; font-weight: 700;
-      padding: 5px 14px; border-radius: 20px; margin-bottom: 20px;
-      text-transform: uppercase; letter-spacing: 1px;
-    }
-    .hero-title {
-      font-size: clamp(2rem, 5vw, 3.4rem);
-      font-weight: 800; line-height: 1.2;
-      color: #fff; margin-bottom: 18px;
-    }
-    .hero-title span { color: ${colors.accent}; }
-    .hero-subtitle {
-      font-size: clamp(1rem, 2.5vw, 1.3rem);
-      color: rgba(255,255,255,0.85);
-      margin-bottom: 36px; max-width: 600px;
-    }
-    .hero-cta-group { display: flex; gap: 14px; flex-wrap: wrap; }
-    .btn-primary {
-      background: linear-gradient(135deg, ${colors.accent}, ${colors.accentDark});
-      color: #fff; border: none; padding: 15px 32px;
-      font-size: 1.05rem; font-weight: 700; border-radius: 8px;
-      cursor: pointer; text-decoration: none; display: inline-block;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-    .btn-secondary {
-      background: transparent; color: #fff;
-      border: 2px solid rgba(255,255,255,0.5);
-      padding: 13px 28px; font-size: 1rem; font-weight: 600;
-      border-radius: 8px; cursor: pointer; text-decoration: none;
-      display: inline-block; transition: all 0.2s;
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: #fff; }
+  const sharedParams = { colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, statsBar, testimonialsSection, faqSection, contentSections, lang, dir, isHebrew };
 
-    /* STATS BAR */
-    .stats-bar {
-      background: ${colors.accent};
-      padding: 28px 0;
-    }
-    .stats-grid { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; }
-    .stat-item { text-align: center; }
-    .stat-number { font-size: 2rem; font-weight: 800; color: #fff; }
-    .stat-label { font-size: 0.85rem; color: rgba(255,255,255,0.85); font-weight: 500; }
-
-    /* SECTIONS */
-    .section { padding: 72px 0; }
-    .alt-bg { background: ${colors.cardBg}; }
-    .section-flex { display: flex; align-items: center; gap: 56px; }
-    .section-flex.reverse { flex-direction: row-reverse; }
-    .section-image { flex: 1; }
-    .section-image img { width: 100%; border-radius: 12px; object-fit: cover; max-height: 380px; }
-    .section-text { flex: 1; }
-    .section-title {
-      font-size: clamp(1.5rem, 3vw, 2.2rem);
-      font-weight: 700; color: ${colors.text};
-      margin-bottom: 16px; text-align: center;
-    }
-    .section-text .section-title { text-align: ${dir === "rtl" ? "right" : "left"}; }
-    .section-body { color: ${colors.subtext}; font-size: 1.05rem; line-height: 1.8; margin-bottom: 16px; }
-    .section-bullets { list-style: none; padding: 0; }
-    .section-bullets li {
-      padding: 8px 0 8px 8px;
-      color: ${colors.subtext}; font-size: 1rem;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .section-bullets li::before {
-      content: '✓'; color: ${colors.accent}; font-weight: 700;
-      min-width: 20px;
-    }
-
-    /* FORM SECTION */
-    .form-section {
-      background: ${colors.cardBg};
-      padding: 80px 0;
-    }
-    .form-wrapper {
-      max-width: 560px; margin: 0 auto;
-      background: ${colors.bg};
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 16px; padding: 48px 40px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .form-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; color: ${colors.text}; text-align: center; }
-    .form-subtitle { color: ${colors.subtext}; margin-bottom: 32px; text-align: center; font-size: 0.95rem; }
-    .form-group { margin-bottom: 20px; }
-    .form-group label { display: block; color: ${colors.subtext}; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
-    .form-input {
-      width: 100%; padding: 13px 16px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 8px; color: ${colors.text};
-      font-size: 1rem; font-family: inherit;
-      transition: border-color 0.2s;
-    }
-    .form-input:focus { outline: none; border-color: ${colors.accent}; }
-    .form-check { display: flex; align-items: center; }
-    .check-label { display: flex; align-items: center; gap: 10px; cursor: pointer; color: ${colors.subtext}; }
-    .form-submit {
-      width: 100%; padding: 16px;
-      background: linear-gradient(135deg, ${colors.accent}, ${colors.accentDark});
-      color: #fff; border: none; border-radius: 8px;
-      font-size: 1.1rem; font-weight: 700;
-      cursor: pointer; margin-top: 8px;
-      transition: transform 0.2s, box-shadow 0.2s;
-      font-family: inherit;
-    }
-    .form-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
-    .form-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-    .success-msg {
-      text-align: center; font-size: 1.3rem; font-weight: 700;
-      color: ${colors.accent}; padding: 48px 24px;
-    }
-
-    /* TESTIMONIALS */
-    .testimonials-section { background: ${colors.bg}; }
-    .testimonials-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; margin-top: 40px; }
-    .testimonial-card {
-      background: ${colors.cardBg};
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px; padding: 28px 24px;
-    }
-    .stars { color: ${colors.accent}; font-size: 1.1rem; margin-bottom: 12px; }
-    .testimonial-text { color: ${colors.subtext}; font-size: 0.95rem; line-height: 1.7; margin-bottom: 14px; }
-    .testimonial-author { color: ${colors.text}; font-weight: 600; font-size: 0.9rem; }
-
-    /* FAQ */
-    .faq-section { background: ${colors.cardBg}; }
-    .faq-list { max-width: 760px; margin: 40px auto 0; }
-    .faq-item {
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      cursor: pointer;
-    }
-    .faq-question {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 20px 0; font-weight: 600; font-size: 1rem;
-      color: ${colors.text};
-    }
-    .faq-arrow { color: ${colors.accent}; transition: transform 0.3s; font-size: 0.8rem; }
-    .faq-answer {
-      display: none; color: ${colors.subtext};
-      padding-bottom: 20px; font-size: 0.95rem; line-height: 1.7;
-    }
-    .faq-answer.open { display: block; }
-
-    /* FOOTER */
-    footer {
-      background: #05050a;
-      border-top: 1px solid rgba(255,255,255,0.06);
-      padding: 32px 0; text-align: center;
-    }
-    .footer-text { color: rgba(255,255,255,0.3); font-size: 0.8rem; line-height: 1.8; }
-
-    /* WHATSAPP FLOAT */
-    .whatsapp-btn {
-      position: fixed; bottom: 28px;
-      ${dir === "rtl" ? "left: 28px;" : "right: 28px;"}
-      background: #25d366;
-      width: 60px; height: 60px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 20px rgba(37,211,102,0.4);
-      z-index: 999; transition: transform 0.2s;
-      text-decoration: none;
-    }
-    .whatsapp-btn:hover { transform: scale(1.1); }
-
-    /* RESPONSIVE */
-    @media (max-width: 768px) {
-      .section-flex, .section-flex.reverse { flex-direction: column; }
-      .hero-cta-group { flex-direction: column; }
-      .btn-primary, .btn-secondary { text-align: center; }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .form-wrapper { padding: 32px 20px; }
-    }
-  </style>
-</head>
-<body>
-
-  <!-- NAV -->
-  <nav>
-    <div class="container nav-inner">
-      <div>${logoHtml}</div>
-      ${phoneInNav ? `<a href="tel:${phoneInNav.replace(/\s/g,'')}" class="nav-phone">${phoneInNav}</a>` : ""}
-    </div>
-  </nav>
-
-  <!-- HERO -->
-  <section class="hero">
-    <div class="container hero-content">
-      ${copy.badge ? `<div class="hero-badge">${copy.badge}</div>` : ""}
-      <h1 class="hero-title">${copy.hero_title || brief.title}</h1>
-      <p class="hero-subtitle">${copy.hero_subtitle || brief.context || ""}</p>
-      <div class="hero-cta-group">
-        <a href="#lead-form" class="btn-primary">${copy.cta_primary || submitText}</a>
-        ${copy.cta_secondary ? `<a href="#content" class="btn-secondary">${copy.cta_secondary}</a>` : ""}
-      </div>
-    </div>
-  </section>
-
-  <!-- STATS BAR -->
-  ${statsBar}
-
-  <!-- CONTENT SECTIONS -->
-  <div id="content">
-    ${contentSections}
-  </div>
-
-  <!-- TESTIMONIALS -->
-  ${testimonialsSection}
-
-  <!-- FAQ -->
-  ${faqSection}
-
-  <!-- LEAD FORM -->
-  <section class="form-section" id="lead-form">
-    <div class="container">
-      <div class="form-wrapper">
-        <h2 class="form-title">${copy.form_title || (isHebrew ? "השאירו פרטים" : "Get In Touch")}</h2>
-        <p class="form-subtitle">${copy.form_subtitle || (isHebrew ? "נציג יחזור אליכם בהקדם האפשרי" : "We will get back to you shortly")}</p>
-        <div id="form-container">
-          <form onsubmit="submitForm(event)" novalidate>
-            ${formFieldsHtml}
-            <button type="submit" class="form-submit" id="submit-btn">${submitText}</button>
-          </form>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- FOOTER -->
-  <footer>
-    <div class="container">
-      <p class="footer-text">
-        ${copy.footer_disclaimer || brief.disclaimer || (isHebrew ? "המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד." : "The information on this site does not constitute legal or financial advice. Images are for illustration purposes only.")}
-      </p>
-    </div>
-  </footer>
-
-  <!-- WHATSAPP FLOAT -->
-  ${whatsappBtn}
-
-  <script>
-    ${zapierScript}
-
-    function toggleFaq(i) {
-      const el = document.getElementById('faq-' + i);
-      const arrow = document.getElementById('arrow-' + i);
-      if (el.classList.contains('open')) {
-        el.classList.remove('open');
-        arrow.style.transform = 'rotate(0deg)';
-      } else {
-        document.querySelectorAll('.faq-answer').forEach(a => a.classList.remove('open'));
-        document.querySelectorAll('.faq-arrow').forEach(a => a.style.transform = 'rotate(0deg)');
-        el.classList.add('open');
-        arrow.style.transform = 'rotate(180deg)';
-      }
-    }
-
-    // Smooth scroll for anchor links
-    document.querySelectorAll('a[href^="#"]').forEach(a => {
-      a.addEventListener('click', e => {
-        const target = document.querySelector(a.getAttribute('href'));
-        if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-      });
-    });
-  </script>
-</body>
-</html>`;
-
-  return html;
+  if (template === "bold_modern") return renderTemplate_boldModern(sharedParams);
+  if (template === "minimal_clean") return renderTemplate_minimalClean(sharedParams);
+  return renderTemplate_darkLuxury(sharedParams);
 }
 
 async function generateLandingPageCopyWithAI(brief, config) {
@@ -3616,6 +3672,12 @@ async function runLandingPageBuilder(task) {
   const config = {
     language: normalizeText(input.language, "he"),
     color_scheme: normalizeText(input.color_scheme, "dark_luxury"),
+    template: normalizeText(input.template) || normalizeText(visualOutput.landing_page_template) || "dark_luxury",
+    color_palette: Array.isArray(visualOutput.color_palette) && visualOutput.color_palette.length >= 3
+      ? visualOutput.color_palette
+      : Array.isArray(bannerComposeOutput?.color_palette) && bannerComposeOutput.color_palette.length >= 3
+        ? bannerComposeOutput.color_palette
+        : null,
     page_slug: normalizeText(input.page_slug, `page-${Date.now()}`),
     // Form
     form_fields: Array.isArray(input.form_fields) ? input.form_fields : [],
