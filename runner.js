@@ -3448,7 +3448,7 @@ async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl,
   const template = config.template || "dark_luxury";
   const colors = buildColorsFromPalette(config.color_palette, template);
 
-  console.log(\`🎨 Landing page: template=\${template}, accent=\${colors.accent}\`);
+  console.log("Landing page: template=" + template + ", accent=" + colors.accent);
 
   // Build shared HTML pieces
   const heroImage = images[0] || "";
