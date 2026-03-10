@@ -1423,6 +1423,9 @@ async function generateVisualDirectionWithAI(task) {
   const keyPoints = getKeyPoints(task);
   const assets = getAssets(task);
   const plannerBrief = getTaskInput(task).planner_brief ?? null;
+  const revisionNotes = getRevisionNotes(task);
+  const previousOutput = getPreviousOutput(task);
+  const isRevision = revisionNotes.length > 0;
   const assetsText = buildAssetsSummaryText(assets) || "לא סופקו נכסים ויזואליים";
   const plannerBriefText = plannerBrief
     ? JSON.stringify(plannerBrief, null, 2)
@@ -1435,9 +1438,12 @@ async function generateVisualDirectionWithAI(task) {
     "התוצרים צריכים להיות פרקטיים ולהתאים ליצירת באנרים, תמונות, דף נחיתה וסרטון.",
     "אם סופקו לוגואים, תמונות או לינקי השראה — צריך להתייחס אליהם כאל חומרים מחייבים.",
     "כתוב בעברית טבעית וברורה.",
-  ].join(" ");
+    isRevision ? "REVISION MODE: עדכן את הכיוון הקריאייטיב הקיים לפי הערות התיקון. שמור על כל מה שלא הוזכר בתיקון." : "",
+  ].filter(Boolean).join(" ");
   const userPrompt = [
-    `בנה כיוון קריאייטיב מלא לקמפיין הזה.`,
+    isRevision ? `עדכן את הכיוון הקריאייטיב לפי הערות הלקוח:` : `בנה כיוון קריאייטיב מלא לקמפיין הזה.`,
+    isRevision ? `הערות תיקון:\n${revisionNotes.join("\n")}` : "",
+    isRevision && Object.keys(previousOutput).length ? `כיוון קריאייטיב קודם:\n${JSON.stringify(previousOutput, null, 2).slice(0, 1500)}` : "",
     `נושא: ${briefTitle}`,
     `קהל יעד: ${audience}`,
     `טון: ${tone}`,
@@ -1454,7 +1460,7 @@ async function generateVisualDirectionWithAI(task) {
     "landing_page_brief צריך להסביר איך דף הנחיתה צריך להיראות ולהרגיש.",
     "landing_page_template: בחר תבנית HTML לדף הנחיתה לפי הברייף: dark_luxury = נדל\"ן יוקרתי/השקעות/פרימיום, bold_modern = פרויקטים מודרניים/טכנולוגיה/קהל צעיר, minimal_clean = בוטיק/שירותים מקצועיים/עיצוב אלגנטי, clean_split = מוצרים/שירותים עם תמונות חזקות/מותגים light, high_convert = המרה גבוהה/מחיר/אקשן מיידי/קמפיין direct response.",
     "video_brief צריך להיות כיוון קצר וברור לסרטון שיווקי.",
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -1563,6 +1569,8 @@ async function generateImagesWithAI(task, related = {}) {
   }
   const briefTitle = getBriefTitle(task);
   const assets = await getClientAssets(task);
+  const revisionNotes = getRevisionNotes(task);
+  const isRevision = revisionNotes.length > 0;
   const bannerOutput = related.bannerOutput || {};
   const visualOutput = related.visualOutput || {};
   const bannerPlans = Array.isArray(bannerOutput.banners)
@@ -1600,6 +1608,7 @@ async function generateImagesWithAI(task, related = {}) {
     const vibe = IMAGE_VIBES[index % IMAGE_VIBES.length];
     return [
       basePrompt,
+      isRevision ? `Revision instructions: ${revisionNotes.join(". ")}` : "",
       `Style: premium real estate advertising photography — ${vibe.label} look.`,
       "Ultra-high-resolution, photorealistic or architectural CGI render.",
       vibe.lighting,
@@ -1609,7 +1618,7 @@ async function generateImagesWithAI(task, related = {}) {
       "Technical: sharp focus, no motion blur, rich contrast.",
       "IMPORTANT: absolutely no text, no letters, no numbers, no watermarks, no logos, no UI elements in the image.",
       "The image will be used as a background for a real estate advertisement.",
-    ].join(" ");
+    ].filter(Boolean).join(" ");
   };
 
   // Stable vibe index by banner name — independent of array order
@@ -1983,6 +1992,9 @@ async function generateBannerSetWithAI(task, related = {}) {
   const additionalContext = getAdditionalContext(task);
   const cta = getCTA(task);
   const disclaimer = getDisclaimer(task);
+  const revisionNotes = getRevisionNotes(task);
+  const previousOutput = getPreviousOutput(task);
+  const isRevision = revisionNotes.length > 0;
   const visualPayload = JSON.stringify(visual || {}, null, 2);
   const adsPayload = JSON.stringify(ads || {}, null, 2);
   const imagePayload = JSON.stringify(imageOutput || {}, null, 2);
@@ -1992,6 +2004,10 @@ async function generateBannerSetWithAI(task, related = {}) {
     null,
     2
   );
+  // If revision — inject previous banners as context
+  const previousBanners = isRevision && previousOutput.final_banners
+    ? `\nבאנרים קיימים לשיפור:\n${JSON.stringify(previousOutput.final_banners, null, 2)}`
+    : "";
   const systemPrompt = [
     "אתה Senior Banner Designer + Creative Strategist.",
     'המטרה שלך היא להכין חבילת באנרים סופית ומוכנה ל-render עבור קמפיין נדל"ן.',
@@ -2001,9 +2017,13 @@ async function generateBannerSetWithAI(task, related = {}) {
     "התייחס ל-output של visual_director כבסיס עיצובי מחייב.",
     "אם יש output של מודעות, השתמש בו לחיזוק כותרות ותועלות.",
     "כתוב בעברית ברורה.",
-  ].join(" ");
+    isRevision ? "REVISION MODE: שפר את הבאנרים הקיימים לפי הערות התיקון. שמור על עיצוב ומבנה דומה." : "",
+  ].filter(Boolean).join(" ");
   const userPrompt = [
-    `צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle}`,
+    isRevision
+      ? `עדכן את הבאנרים הקיימים לפי הערות הלקוח: ${briefTitle}`
+      : `צור חבילת באנרים סופית עבור הקמפיין: ${briefTitle}`,
+    isRevision ? `הערות תיקון:\n${revisionNotes.join("\n")}` : "",
     `CTA: ${cta}`,
     `Disclaimer: ${disclaimer}`,
     `מידע נוסף:\n${additionalContext || "אין"}`,
@@ -2012,6 +2032,7 @@ async function generateBannerSetWithAI(task, related = {}) {
     `Visual director output:\n${visualPayload}`,
     `Ad copy output:\n${adsPayload}`,
     `Image generator output:\n${imagePayload}`,
+    previousBanners,
     "החזר JSON בלבד עם השדות:",
     "master_direction, visual_style, color_palette, global_design_notes, final_banners",
     "final_banners חייב להכיל בדיוק 3 באנרים:",
@@ -2023,7 +2044,7 @@ async function generateBannerSetWithAI(task, related = {}) {
     "headline צריך להיות קצר וחזק.",
     "subheadline צריך להיות קצר, מסחרי וברור.",
     "background_image_ref צריך להיות אחד מה-banner_name שכבר נוצרו אם קיימים.",
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
   const ai = await createStructuredResponse({
     model: "gpt-4.1-mini",
     systemPrompt,
@@ -4188,6 +4209,8 @@ async function runQA(task) {
   const input = getTaskInput(task);
   const sourceTaskId = normalizeText(input.source_task_id, "");
   const briefTitle = getBriefTitle(task);
+  const revisionNotes = getRevisionNotes(task);
+  const isRevision = revisionNotes.length > 0;
 
   // Gather all sibling tasks
   let siblings = [];
@@ -4339,6 +4362,7 @@ Failed checks: ${checks.filter(c => !c.passed).map(c => c.label).join(", ") || "
 
 ${banner_hebrew_review ? `Banner Hebrew review result:\n${banner_hebrew_review}` : ""}
 
+${isRevision ? `\nRevision notes that were applied to this campaign:\n${revisionNotes.join("\n")}\nPlease verify that these revision notes were correctly applied to the outputs.\n` : ""}
 Respond in Hebrew with:
 1. סיכום קצר (2-3 משפטים) של מצב הקמפיין
 2. בעיות שנמצאו (אם יש) — כולל ממצאי הבדיקה הויזואלית של הבאנרים
