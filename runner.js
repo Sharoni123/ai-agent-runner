@@ -1452,7 +1452,7 @@ async function generateVisualDirectionWithAI(task) {
     "image_prompts צריכים להיות prompts מוכנים ליצירת תמונות שיווקיות.",
     "banner_brief צריך להיות תיאור ברור לבאנרים.",
     "landing_page_brief צריך להסביר איך דף הנחיתה צריך להיראות ולהרגיש.",
-    "landing_page_template: בחר תבנית HTML לדף הנחיתה לפי הברייף: dark_luxury = נדל\"ן יוקרתי/השקעות/פרימיום, bold_modern = פרויקטים מודרניים/טכנולוגיה/קהל צעיר, minimal_clean = בוטיק/שירותים מקצועיים/עיצוב אלגנטי.",
+    "landing_page_template: בחר תבנית HTML לדף הנחיתה לפי הברייף: dark_luxury = נדל\"ן יוקרתי/השקעות/פרימיום, bold_modern = פרויקטים מודרניים/טכנולוגיה/קהל צעיר, minimal_clean = בוטיק/שירותים מקצועיים/עיצוב אלגנטי, clean_split = מוצרים/שירותים עם תמונות חזקות/מותגים light, high_convert = המרה גבוהה/מחיר/אקשן מיידי/קמפיין direct response.",
     "video_brief צריך להיות כיוון קצר וברור לסרטון שיווקי.",
   ].join("\n\n");
   const ai = await createStructuredResponse({
@@ -2963,6 +2963,17 @@ Requirements:
 function buildColorsFromPalette(palette, scheme) {
   // palette = array of hex strings from visual_director / banner_composer
   // Try to extract bg, accent from the palette; fall back to scheme presets
+  // Light templates use different defaults
+  if (scheme === 'clean_split') {
+    const base2 = { bg: "#f7f5f0", cardBg: "#ffffff", accent: "#1e5032", accentDark: "#163d26", text: "#1a1a1a", subtext: "#666", navBg: "rgba(255,255,255,0.97)", heroOverlay: "rgba(0,0,0,0.3)", dark: false };
+    if (!Array.isArray(palette) || palette.length < 3) return base2;
+    // still inject accent from palette
+    palette = palette; // fall through
+  }
+  if (scheme === 'high_convert') {
+    const base3 = { bg: "#ffffff", cardBg: "#f5f5f5", accent: "#1a5c2e", accentDark: "#134520", text: "#1a1a1a", subtext: "#666", navBg: "rgba(255,255,255,0.97)", heroOverlay: "rgba(0,0,0,0.3)", dark: false };
+    if (!Array.isArray(palette) || palette.length < 3) return base3;
+  }
   const PRESETS = {
     dark_luxury: {
       bg: "#0a0a0f", cardBg: "#12121a", accent: "#c9a84c",
@@ -3419,6 +3430,399 @@ function renderTemplate_minimalClean({ colors, copy, config, images, brief, logo
 }
 
 
+// ─── Template: clean_split (Branch-inspired) ─────────────────────────────────
+function renderTemplate_cleanSplit({ colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, testimonialsSection, faqSection, lang, dir, isHebrew }) {
+  const heroImage = images[0] || "";
+  const contentImages = images.slice(1, 5);
+  const accentRgb = (() => { const m = colors.accent.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i); return m ? `${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)}` : "30,80,50"; })();
+  const featureIcons = ["◈","◉","◎","◆"];
+  const features = copy.features || copy.sections?.slice(0,4).map(s=>({title:s.title||"",body:(s.bullets||[])[0]||s.body||""})) || [];
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title || brief.title}</title>
+  <meta name="description" content="${copy.meta_description || brief.context || ""}">
+  ${pixelScript}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans Hebrew',Arial,sans-serif;background:#f7f5f0;color:#1a1a1a;direction:${dir};line-height:1.65;overflow-x:hidden}
+    .container{max-width:1120px;margin:0 auto;padding:0 32px}
+    /* NAV */
+    nav{background:#fff;border-bottom:1px solid #e8e4dc;padding:0;position:sticky;top:0;z-index:100}
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px;gap:32px}
+    .nav-logo{height:40px;width:auto;object-fit:contain}
+    .nav-brand{font-size:1.4rem;font-weight:700;color:#1a1a1a;letter-spacing:-0.5px}
+    .nav-links{display:flex;gap:28px;list-style:none}
+    .nav-links a{color:#555;font-size:0.88rem;text-decoration:none;font-weight:500;transition:color 0.2s}
+    .nav-links a:hover{color:${colors.accent}}
+    .nav-cta{background:${colors.accent};color:#fff;padding:9px 22px;border-radius:6px;font-size:0.88rem;font-weight:600;text-decoration:none;white-space:nowrap;transition:opacity 0.2s}
+    .nav-cta:hover{opacity:0.88}
+    /* HERO — split */
+    .hero{background:#fff;min-height:480px;display:grid;grid-template-columns:${dir==="rtl"?"1fr 1fr":"1fr 1fr"};align-items:center;gap:0}
+    .hero-left{padding:72px 48px 72px ${dir==="rtl"?"24px":"64px"};${dir==="rtl"?"padding-right:64px":"padding-left:64px"}}
+    .hero-right{overflow:hidden;min-height:480px;position:relative;background:#e8e4dc}
+    .hero-right img{width:100%;height:100%;object-fit:cover;display:block}
+    .hero-badge{display:inline-flex;align-items:center;gap:6px;color:${colors.accent};font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:20px}
+    .hero-badge::before{content:'';width:20px;height:2px;background:${colors.accent};display:inline-block}
+    .hero-title{font-size:clamp(2rem,3.5vw,3rem);font-weight:700;line-height:1.15;color:#1a1a1a;margin-bottom:20px;letter-spacing:-0.5px}
+    .hero-title em{font-style:normal;color:${colors.accent}}
+    .hero-bullets{list-style:none;margin-bottom:32px;padding:0}
+    .hero-bullets li{display:flex;align-items:center;gap:10px;font-size:0.95rem;color:#555;padding:5px 0;font-weight:500}
+    .hero-bullets li::before{content:'✓';color:${colors.accent};font-weight:800;font-size:0.85rem;min-width:16px}
+    .btn-primary{display:inline-block;background:${colors.accent};color:#fff;padding:13px 30px;font-size:0.97rem;font-weight:700;border-radius:6px;text-decoration:none;transition:all 0.2s;cursor:pointer;border:none;font-family:inherit}
+    .btn-primary:hover{opacity:0.88;box-shadow:0 4px 16px rgba(${accentRgb},0.35);transform:translateY(-1px)}
+    /* FEATURES GRID */
+    .features-section{background:#fff;padding:72px 0}
+    .features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:36px;margin-top:48px}
+    .feature-card{text-align:center;padding:8px}
+    .feature-icon{width:56px;height:56px;border-radius:50%;background:#f7f5f0;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:1.4rem;color:${colors.accent}}
+    .feature-title{font-size:1rem;font-weight:700;color:#1a1a1a;margin-bottom:8px}
+    .feature-body{font-size:0.88rem;color:#777;line-height:1.6}
+    /* PRESS BAR */
+    .press-bar{background:${colors.accent};padding:20px 0}
+    .press-inner{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:center}
+    .press-label{color:rgba(255,255,255,0.7);font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:2px;white-space:nowrap}
+    .press-items{display:flex;align-items:center;gap:28px;flex-wrap:wrap;justify-content:center}
+    .press-item{color:rgba(255,255,255,0.85);font-size:0.88rem;font-weight:700;letter-spacing:0.5px}
+    /* ALTERNATING SECTIONS */
+    .alt-section{padding:0}
+    .alt-row{display:grid;grid-template-columns:1fr 1fr;min-height:400px}
+    .alt-row.flip{direction:ltr}
+    .alt-row.flip .alt-text{direction:${dir}}
+    .alt-img{overflow:hidden;position:relative}
+    .alt-img img{width:100%;height:100%;object-fit:cover;display:block;min-height:360px}
+    .alt-text{background:${colors.accent};display:flex;flex-direction:column;justify-content:center;padding:60px 52px;color:#fff}
+    .alt-text.light{background:#f7f5f0;color:#1a1a1a}
+    .alt-from{font-size:0.78rem;font-weight:600;letter-spacing:1px;text-transform:uppercase;opacity:0.7;margin-bottom:8px}
+    .alt-title{font-size:clamp(1.6rem,2.5vw,2.2rem);font-weight:700;line-height:1.2;margin-bottom:12px;letter-spacing:-0.3px}
+    .alt-body{font-size:0.95rem;line-height:1.7;opacity:0.85;margin-bottom:28px}
+    .btn-outline-white{display:inline-block;border:2px solid rgba(255,255,255,0.7);color:#fff;padding:10px 24px;border-radius:4px;font-size:0.88rem;font-weight:700;text-decoration:none;transition:all 0.2s;cursor:pointer;font-family:inherit;background:transparent}
+    .btn-outline-white:hover{background:rgba(255,255,255,0.15);border-color:#fff}
+    .btn-outline-dark{display:inline-block;border:2px solid ${colors.accent};color:${colors.accent};padding:10px 24px;border-radius:4px;font-size:0.88rem;font-weight:700;text-decoration:none;transition:all 0.2s;cursor:pointer;font-family:inherit;background:transparent}
+    .btn-outline-dark:hover{background:${colors.accent};color:#fff}
+    /* FORM */
+    .form-section{background:#fff;padding:80px 0}
+    .form-wrapper{max-width:560px;margin:0 auto;background:#f7f5f0;border-radius:10px;padding:52px 44px;border:1px solid #e0dbd0}
+    .form-title{font-size:1.7rem;font-weight:700;margin-bottom:8px;color:#1a1a1a;text-align:center;letter-spacing:-0.3px}
+    .form-subtitle{color:#777;margin-bottom:36px;text-align:center;font-size:0.92rem}
+    .form-group{margin-bottom:20px}
+    .form-group label{display:block;color:#444;font-size:0.8rem;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.4px}
+    .form-input{width:100%;padding:12px 16px;background:#fff;border:1.5px solid #d5cfc5;border-radius:5px;color:#1a1a1a;font-size:0.97rem;font-family:inherit;transition:border-color 0.2s}
+    .form-input:focus{outline:none;border-color:${colors.accent}}
+    .check-label{display:flex;align-items:center;gap:10px;cursor:pointer;color:#777;font-size:0.9rem}
+    .form-submit{width:100%;padding:14px;background:${colors.accent};color:#fff;border:none;border-radius:5px;font-size:1rem;font-weight:700;cursor:pointer;margin-top:8px;transition:all 0.2s;font-family:inherit}
+    .form-submit:hover{opacity:0.9;transform:translateY(-1px);box-shadow:0 4px 16px rgba(${accentRgb},0.35)}
+    .form-submit:disabled{opacity:0.55;cursor:not-allowed;transform:none;box-shadow:none}
+    .success-msg{text-align:center;font-size:1.2rem;font-weight:600;color:${colors.accent};padding:48px 24px}
+    /* TESTIMONIALS */
+    .testimonials-section{background:#f7f5f0;padding:72px 0}
+    .section-title{font-size:clamp(1.4rem,2.5vw,2rem);font-weight:700;color:#1a1a1a;text-align:center;margin-bottom:12px;letter-spacing:-0.3px}
+    .section-subtitle{text-align:center;color:#777;font-size:0.95rem;margin-bottom:40px;max-width:540px;margin-left:auto;margin-right:auto}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+    .testimonial-card{background:#fff;border:1px solid #e8e4dc;border-radius:8px;padding:28px 24px}
+    .stars{color:${colors.accent};font-size:1rem;margin-bottom:12px;letter-spacing:1px}
+    .testimonial-text{color:#555;font-size:0.93rem;line-height:1.7;margin-bottom:14px}
+    .testimonial-author{color:#1a1a1a;font-weight:700;font-size:0.88rem}
+    /* FAQ */
+    .faq-section{background:#fff;padding:72px 0}
+    .faq-list{max-width:700px;margin:40px auto 0}
+    .faq-item{border-bottom:1px solid #e8e4dc;cursor:pointer}
+    .faq-question{display:flex;justify-content:space-between;align-items:center;padding:20px 0;font-weight:600;font-size:0.97rem;color:#1a1a1a}
+    .faq-arrow{color:${colors.accent};transition:transform 0.3s}
+    .faq-answer{display:none;color:#666;padding-bottom:20px;font-size:0.93rem;line-height:1.7}
+    .faq-answer.open{display:block}
+    /* FOOTER */
+    footer{background:${colors.accent};padding:36px 0;text-align:center}
+    .footer-text{color:rgba(255,255,255,0.5);font-size:0.78rem;line-height:1.8}
+    /* WHATSAPP */
+    .whatsapp-btn{position:fixed;bottom:28px;${dir==="rtl"?"left:28px":"right:28px"};background:#25d366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(37,211,102,0.35);z-index:999;transition:transform 0.2s;text-decoration:none}
+    .whatsapp-btn:hover{transform:scale(1.08)}
+    @media(max-width:900px){.hero,.alt-row{grid-template-columns:1fr}.hero-right{min-height:280px}.hero-left{padding:48px 24px}.alt-row.flip{direction:${dir}}}
+    @media(max-width:600px){.nav-links{display:none}.form-wrapper{padding:32px 20px}.features-grid{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+  <nav><div class="container nav-inner">
+    <div>${logoHtml}</div>
+    <ul class="nav-links">
+      ${copy.sections?.slice(0,3).map(s=>`<li><a href="#content">${s.title||""}</a></li>`).join("")||""}
+    </ul>
+    <a href="#lead-form" class="nav-cta">${copy.cta_primary||submitText}</a>
+  </div></nav>
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="hero-left">
+      ${copy.badge?`<div class="hero-badge">${copy.badge}</div>`:""}
+      <h1 class="hero-title">${copy.hero_title||brief.title}</h1>
+      <ul class="hero-bullets">
+        ${(copy.hero_bullets||copy.sections?.[0]?.bullets||[copy.hero_subtitle]).filter(Boolean).slice(0,4).map(b=>`<li>${b}</li>`).join("")}
+      </ul>
+      <a href="#lead-form" class="btn-primary">${copy.cta_primary||submitText}</a>
+    </div>
+    <div class="hero-right">${heroImage?`<img src="${heroImage}" alt="${brief.title}" loading="eager">`:"<div style='width:100%;height:100%;background:linear-gradient(135deg,#e8e4dc,#d5cfc5)'></div>"}</div>
+  </section>
+
+  <!-- FEATURES GRID -->
+  ${features.length>0?`<section class="features-section">
+    <div class="container">
+      ${copy.features_heading?`<h2 class="section-title">${copy.features_heading}</h2>`:""}
+      <div class="features-grid">
+        ${features.map((f,i)=>`<div class="feature-card">
+          <div class="feature-icon">${featureIcons[i%4]}</div>
+          <div class="feature-title">${f.title}</div>
+          <div class="feature-body">${f.body||""}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+  </section>`:""}
+
+  <!-- PRESS BAR -->
+  ${copy.press_mentions?`<div class="press-bar"><div class="container press-inner">
+    <span class="press-label">${isHebrew?"כפי שדווח ב":"Featured In"}</span>
+    <div class="press-items">${copy.press_mentions.map(p=>`<span class="press-item">${p}</span>`).join("")}</div>
+  </div></div>`:`<div class="press-bar"><div class="container press-inner">
+    <span class="press-label">${isHebrew?"כפי שדווח ב":"Featured In"}</span>
+    <div class="press-items">
+      ${(copy.stats||[]).slice(0,4).map(s=>`<span class="press-item">${s.value} ${s.label}</span>`).join("")}
+    </div>
+  </div></div>`}
+
+  <!-- ALTERNATING ROWS -->
+  <section id="content" class="alt-section">
+    ${contentImages.map((img,i)=>`<div class="alt-row${i%2===1?" flip":""}">
+      ${i%2===0?`<div class="alt-img"><img src="${img}" alt="" loading="lazy"></div><div class="alt-text">`:
+                `<div class="alt-text light"><span style="color:${colors.accent}">`}
+        ${copy.sections?.[i]?.title?`<div class="alt-from">${brief.brand_name||""}</div><div class="alt-title">${copy.sections[i].title}</div>`:""}
+        ${copy.sections?.[i]?.body?`<p class="alt-body">${copy.sections[i].body}</p>`:""}
+        <a href="#lead-form" class="${i%2===0?"btn-outline-white":"btn-outline-dark"}">${copy.cta_primary||submitText}</a>
+      ${i%2===0?`</div>`:`</span></div><div class="alt-img"><img src="${img}" alt="" loading="lazy"></div>`}
+    </div>`).join("")}
+  </section>
+
+  ${testimonialsSection}
+  ${faqSection}
+
+  <!-- FORM -->
+  <section class="form-section" id="lead-form"><div class="container"><div class="form-wrapper">
+    <h2 class="form-title">${copy.form_title||(isHebrew?"השאירו פרטים":"Get In Touch")}</h2>
+    <p class="form-subtitle">${copy.form_subtitle||(isHebrew?"נציג יחזור אליכם בהקדם":"We will get back to you shortly")}</p>
+    <div id="form-container"><form onsubmit="submitForm(event)" novalidate>${formFieldsHtml}<button type="submit" class="form-submit" id="submit-btn">${submitText}</button></form></div>
+  </div></div></section>
+
+  <footer><div class="container"><p class="footer-text">${copy.footer_disclaimer||brief.disclaimer||(isHebrew?"המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד.":"Images for illustration only.")}</p></div></footer>
+  ${whatsappBtn}
+  <script>${zapierScript}
+    function toggleFaq(i){const el=document.getElementById('faq-'+i);const arrow=document.getElementById('arrow-'+i);if(el.classList.contains('open')){el.classList.remove('open');arrow.style.transform='rotate(0deg)'}else{document.querySelectorAll('.faq-answer').forEach(a=>a.classList.remove('open'));document.querySelectorAll('.faq-arrow').forEach(a=>a.style.transform='rotate(0deg)');el.classList.add('open');arrow.style.transform='rotate(180deg)'}}
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}})});
+  </script>
+</body></html>`;
+}
+
+// ─── Template: high_convert (Grass Roots-inspired) ───────────────────────────
+function renderTemplate_highConvert({ colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, testimonialsSection, faqSection, lang, dir, isHebrew }) {
+  const heroImage = images[0] || "";
+  const accentRgb = (() => { const m = colors.accent.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i); return m ? `${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)}` : "30,80,50"; })();
+  const ctaColor = "#e8401c"; // warm CTA contrast — overridden by accent if accent is warm
+  const ctaIsAccent = true;
+  const iconSymbols = ["❤","🌿","✦","⬡"];
+  const features = copy.features || copy.sections?.slice(0,4).map(s=>({title:s.title||"",body:(s.bullets||[])[0]||s.body||""})) || [];
+  const secondaryFeatures = copy.sections?.slice(4,8).map(s=>({title:s.title||"",body:(s.bullets||[])[0]||s.body||""})) || [];
+  return `<!DOCTYPE html>
+<html lang="${lang}" dir="${dir}">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${copy.page_title||brief.title}</title>
+  <meta name="description" content="${copy.meta_description||brief.context||""}">
+  ${pixelScript}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{font-family:'Noto Sans Hebrew',Arial,sans-serif;background:#fff;color:#1a1a1a;direction:${dir};line-height:1.6;overflow-x:hidden}
+    .container{max-width:960px;margin:0 auto;padding:0 24px}
+    /* ANNOUNCEMENT BAR */
+    .announce-bar{background:#e8401c;color:#fff;text-align:center;padding:10px 24px;font-size:0.88rem;font-weight:700;letter-spacing:0.3px}
+    .announce-bar a{color:#fff;text-decoration:underline}
+    /* NAV */
+    nav{background:#fff;border-bottom:2px solid ${colors.accent};padding:0;position:sticky;top:0;z-index:100}
+    .nav-inner{display:flex;align-items:center;justify-content:center;height:72px}
+    .nav-logo{height:52px;width:auto;object-fit:contain}
+    .nav-brand{font-size:1.5rem;font-weight:900;color:${colors.accent};letter-spacing:-0.5px;text-transform:uppercase}
+    /* HERO — centered */
+    .hero{padding:56px 0 40px;text-align:center;position:relative;background:#fff}
+    ${heroImage?`.hero-bg-strip{width:100%;max-height:380px;overflow:hidden;margin-bottom:0}.hero-bg-strip img{width:100%;max-height:380px;object-fit:cover;display:block}`:``}
+    .hero-title{font-size:clamp(2rem,4.5vw,3.4rem);font-weight:900;line-height:1.1;color:${colors.accent};margin-bottom:0;letter-spacing:-1px;text-transform:uppercase;padding:0 20px}
+    .hero-sup{font-size:0.55em;vertical-align:super}
+    .hero-context{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:32px 0;align-items:start;text-align:${dir==="rtl"?"right":"left"}}
+    .hero-desc{font-size:0.95rem;color:#555;line-height:1.7;padding:${dir==="rtl"?"0 0 0 24px":"0 24px 0 0"};border-${dir==="rtl"?"left":"right"}:2px solid ${colors.accent};min-height:80px}
+    .hero-desc-right{font-size:0.95rem;color:#555;line-height:1.7}
+    /* INLINE FORM — center of page */
+    .inline-form-section{background:${colors.accent};padding:44px 0;text-align:center}
+    .inline-form-title{font-size:clamp(1.4rem,2.5vw,2rem);font-weight:900;color:#fff;text-transform:uppercase;margin-bottom:8px;letter-spacing:-0.5px}
+    .inline-form-sub{color:rgba(255,255,255,0.8);font-size:0.92rem;margin-bottom:24px}
+    .inline-form-row{display:flex;gap:10px;max-width:560px;margin:0 auto;flex-wrap:wrap;justify-content:center}
+    .inline-input{flex:1;min-width:200px;padding:14px 18px;border:none;border-radius:4px;font-size:1rem;font-family:inherit;color:#1a1a1a;outline:none}
+    .inline-input:focus{box-shadow:0 0 0 3px rgba(255,255,255,0.4)}
+    .inline-submit{background:#e8401c;color:#fff;border:none;padding:14px 28px;font-size:1rem;font-weight:800;border-radius:4px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:opacity 0.2s;text-transform:uppercase;letter-spacing:0.5px}
+    .inline-submit:hover{opacity:0.88}
+    .inline-submit:disabled{opacity:0.6;cursor:not-allowed}
+    /* STATS STRIP */
+    .stats-strip{display:grid;grid-template-columns:repeat(3,1fr);border-top:3px solid ${colors.accent};border-bottom:3px solid ${colors.accent}}
+    .stat-cell{background:${colors.accent};color:#fff;text-align:center;padding:20px 16px;border-${dir==="rtl"?"left":"right"}:2px solid rgba(255,255,255,0.25)}
+    .stat-cell:last-child{border:none}
+    .stat-num{font-size:1.6rem;font-weight:900;line-height:1;text-transform:uppercase;letter-spacing:-0.5px}
+    .stat-lbl{font-size:0.75rem;font-weight:700;opacity:0.85;text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+    /* FEATURES */
+    .features-section{padding:64px 0}
+    .big-section-title{font-size:clamp(1.5rem,2.5vw,2.2rem);font-weight:900;color:#1a1a1a;text-align:center;margin-bottom:48px;text-transform:uppercase;letter-spacing:-0.5px}
+    .icon-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px;text-align:center}
+    .icon-item{}
+    .icon-circle{width:64px;height:64px;background:${colors.accent};border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.4rem;color:#fff}
+    .icon-title{font-size:0.88rem;font-weight:800;color:#1a1a1a;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.3px}
+    .icon-body{font-size:0.83rem;color:#666;line-height:1.6}
+    /* SECONDARY FEATURES — categories with accent bg */
+    .categories-section{background:#f5f5f5;padding:64px 0}
+    .categories-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-top:40px}
+    .category-card{background:${colors.accent};border-radius:6px;padding:24px 20px;color:#fff;text-align:center}
+    .cat-tag{display:inline-block;border-bottom:2px solid rgba(255,255,255,0.5);color:rgba(255,255,255,0.7);font-size:0.72rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;padding-bottom:4px;margin-bottom:12px}
+    .cat-title{font-size:1rem;font-weight:800;line-height:1.3;margin-bottom:10px}
+    .cat-body{font-size:0.82rem;color:rgba(255,255,255,0.75);line-height:1.6}
+    /* TESTIMONIALS */
+    .testimonials-section{background:#fff;padding:64px 0}
+    .section-title{font-size:clamp(1.4rem,2.5vw,2rem);font-weight:800;color:#1a1a1a;text-align:center;margin-bottom:40px;text-transform:uppercase;letter-spacing:-0.3px}
+    .testimonials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+    .testimonial-card{background:#f5f5f5;border-radius:6px;padding:24px}
+    .stars{color:${colors.accent};font-size:1rem;margin-bottom:10px;letter-spacing:2px}
+    .testimonial-text{color:#555;font-size:0.92rem;line-height:1.7;margin-bottom:12px}
+    .testimonial-author{color:#1a1a1a;font-weight:700;font-size:0.85rem}
+    /* FAQ */
+    .faq-section{background:#f5f5f5;padding:64px 0}
+    .faq-list{max-width:700px;margin:40px auto 0}
+    .faq-item{background:#fff;border-radius:4px;margin-bottom:8px;cursor:pointer;border:1px solid #e0e0e0}
+    .faq-question{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;font-weight:700;font-size:0.95rem;color:#1a1a1a}
+    .faq-arrow{color:${colors.accent};transition:transform 0.3s}
+    .faq-answer{display:none;color:#666;padding:0 20px 18px;font-size:0.92rem;line-height:1.7}
+    .faq-answer.open{display:block}
+    /* BOTTOM FORM */
+    .form-section{background:${colors.accent};padding:64px 0;text-align:center}
+    .form-wrapper{max-width:520px;margin:0 auto;background:#fff;border-radius:6px;padding:44px 36px}
+    .form-title{font-size:1.6rem;font-weight:900;margin-bottom:8px;color:#1a1a1a;text-transform:uppercase;letter-spacing:-0.3px}
+    .form-subtitle{color:#777;margin-bottom:32px;font-size:0.92rem}
+    .form-group{margin-bottom:16px;text-align:${dir==="rtl"?"right":"left"}}
+    .form-group label{display:block;color:#444;font-size:0.78rem;font-weight:800;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.4px}
+    .form-input{width:100%;padding:12px 14px;background:#f5f5f5;border:1.5px solid #ddd;border-radius:4px;color:#1a1a1a;font-size:0.95rem;font-family:inherit;transition:border-color 0.2s}
+    .form-input:focus{outline:none;border-color:${colors.accent}}
+    .check-label{display:flex;align-items:center;gap:10px;cursor:pointer;color:#777;font-size:0.88rem}
+    .form-submit{width:100%;padding:14px;background:#e8401c;color:#fff;border:none;border-radius:4px;font-size:1rem;font-weight:900;cursor:pointer;margin-top:8px;transition:opacity 0.2s;font-family:inherit;text-transform:uppercase;letter-spacing:0.5px}
+    .form-submit:hover{opacity:0.88}
+    .form-submit:disabled{opacity:0.55;cursor:not-allowed}
+    .success-msg{text-align:center;font-size:1.2rem;font-weight:700;color:${colors.accent};padding:48px 24px}
+    /* FOOTER */
+    footer{background:#1a1a1a;padding:32px 0;text-align:center}
+    .footer-text{color:rgba(255,255,255,0.35);font-size:0.78rem;line-height:1.8}
+    /* WHATSAPP */
+    .whatsapp-btn{position:fixed;bottom:28px;${dir==="rtl"?"left:28px":"right:28px"};background:#25d366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(37,211,102,0.35);z-index:999;transition:transform 0.2s;text-decoration:none}
+    .whatsapp-btn:hover{transform:scale(1.08)}
+    @media(max-width:768px){.hero-context{grid-template-columns:1fr}.stats-strip{grid-template-columns:1fr 1fr}.inline-form-row{flex-direction:column}.icon-grid{grid-template-columns:repeat(2,1fr)}.form-wrapper{padding:32px 20px}}
+  </style>
+</head>
+<body>
+  <!-- ANNOUNCEMENT BAR -->
+  ${copy.announcement_bar?`<div class="announce-bar">${copy.announcement_bar}</div>`:
+    copy.badge?`<div class="announce-bar">${copy.badge}</div>`:""}
+
+  <nav><div class="container nav-inner"><div>${logoHtml}</div></div></nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <h1 class="hero-title">${copy.hero_title||brief.title}</h1>
+      ${copy.hero_subtitle?`<div class="hero-context" style="margin-top:32px">
+        <div class="hero-desc">${copy.hero_subtitle}</div>
+        <div class="hero-desc-right">${copy.hero_body||copy.sections?.[0]?.body||""}</div>
+      </div>`:""}
+    </div>
+    ${heroImage?`<div class="hero-bg-strip"><img src="${heroImage}" alt="${brief.title}" loading="eager"></div>`:""}
+  </section>
+
+  <!-- INLINE FORM -->
+  <section class="inline-form-section" id="lead-form">
+    <div class="container">
+      <div class="inline-form-title">${copy.form_title||(isHebrew?"השאירו פרטים עכשיו":"Get Your Offer Now")}</div>
+      <div class="inline-form-sub">${copy.form_subtitle||(isHebrew?"נציג יחזור אליכם בהקדם":"Our team will contact you shortly")}</div>
+      <div class="inline-form-row" id="form-container">
+        <form onsubmit="submitForm(event)" novalidate style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%">
+          ${(config.form_fields||[{type:"tel",name:"phone",placeholder:isHebrew?"מספר טלפון":"Phone number",required:true}])
+            .filter(f=>f.type!=="checkbox"&&f.type!=="select")
+            .map(f=>`<input type="${f.type||"text"}" name="${f.name||f.label}" placeholder="${f.placeholder||f.label||""}" ${f.required?"required":""} class="inline-input">`)
+            .join("")}
+          <button type="submit" class="inline-submit" id="submit-btn">${submitText}</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS STRIP -->
+  ${copy.stats?`<div class="stats-strip container" style="max-width:100%;padding:0">
+    ${copy.stats.slice(0,3).map(s=>`<div class="stat-cell"><div class="stat-num">${s.value}</div><div class="stat-lbl">${s.label}</div></div>`).join("")}
+  </div>`:""}
+
+  <!-- FEATURES -->
+  ${features.length>0?`<section class="features-section">
+    <div class="container">
+      ${copy.features_heading?`<h2 class="big-section-title">${copy.features_heading}</h2>`:
+        `<h2 class="big-section-title">${isHebrew?"למה לבחור בנו":"Why Choose Us"}</h2>`}
+      <div class="icon-grid">
+        ${features.map((f,i)=>`<div class="icon-item">
+          <div class="icon-circle">${iconSymbols[i%4]}</div>
+          <div class="icon-title">${f.title}</div>
+          <div class="icon-body">${f.body||""}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+  </section>`:""}
+
+  <!-- SECONDARY FEATURES -->
+  ${copy.sections?.length>4?`<section class="categories-section">
+    <div class="container">
+      ${copy.sections_heading2?`<h2 class="big-section-title" style="color:#1a1a1a">${copy.sections_heading2}</h2>`:""}
+      <div class="categories-grid">
+        ${copy.sections.slice(4,8).map((s,i)=>`<div class="category-card">
+          <div class="cat-tag">${s.tag||s.title||""}</div>
+          <div class="cat-title">${s.subtitle||s.body||""}</div>
+          <div class="cat-body">${(s.bullets||[]).slice(0,2).join(" · ")||""}</div>
+        </div>`).join("")}
+      </div>
+    </div>
+  </section>`:""}
+
+  ${testimonialsSection}
+  ${faqSection}
+
+  <!-- BOTTOM FORM -->
+  <section class="form-section" id="lead-form-bottom"><div class="container"><div class="form-wrapper">
+    <h2 class="form-title">${copy.form_title||(isHebrew?"השאירו פרטים":"Get In Touch")}</h2>
+    <p class="form-subtitle">${copy.form_subtitle||(isHebrew?"נציג יחזור אליכם בהקדם":"We will get back to you shortly")}</p>
+    <div id="form-container-bottom"><form onsubmit="submitFormBottom(event)" novalidate>${formFieldsHtml}<button type="submit" class="form-submit" id="submit-btn-bottom">${submitText}</button></form></div>
+  </div></div></section>
+
+  <footer><div class="container"><p class="footer-text">${copy.footer_disclaimer||brief.disclaimer||(isHebrew?"המידע באתר זה אינו מהווה ייעוץ משפטי או פיננסי. התמונות להמחשה בלבד.":"Images for illustration only.")}</p></div></footer>
+  ${whatsappBtn}
+  <script>${zapierScript}
+    function submitFormBottom(e) { submitForm(e); }
+    function toggleFaq(i){const el=document.getElementById('faq-'+i);const arrow=document.getElementById('arrow-'+i);if(el.classList.contains('open')){el.classList.remove('open');arrow.style.transform='rotate(0deg)'}else{document.querySelectorAll('.faq-answer').forEach(a=>a.classList.remove('open'));document.querySelectorAll('.faq-arrow').forEach(a=>a.style.transform='rotate(0deg)');el.classList.add('open');arrow.style.transform='rotate(180deg)'}}
+    document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{const t=document.querySelector(a.getAttribute('href'));if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'})}})});
+  </script>
+</body></html>`;
+}
+
+
 async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl, config }) {
   if (!openai) throw new Error("OpenAI not configured for landing page generation");
 
@@ -3504,6 +3908,8 @@ async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl,
   const sharedParams = { colors, copy, config, images, brief, logoHtml, formFieldsHtml, submitText, zapierScript, pixelScript, whatsappBtn, statsBar, testimonialsSection, faqSection, contentSections, lang, dir, isHebrew };
 
   if (template === "bold_modern") return renderTemplate_boldModern(sharedParams);
+  if (template === "clean_split") return renderTemplate_cleanSplit(sharedParams);
+  if (template === "high_convert") return renderTemplate_highConvert(sharedParams);
   if (template === "minimal_clean") return renderTemplate_minimalClean(sharedParams);
   return renderTemplate_darkLuxury(sharedParams);
 }
