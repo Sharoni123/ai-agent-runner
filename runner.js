@@ -16,6 +16,7 @@ const PUBLIC_DIR = process.env.PUBLIC_DIR
 const GENERATED_IMAGES_DIR = path.join(PUBLIC_DIR, "generated-images");
 const BANNERS_DIR = path.join(PUBLIC_DIR, "banners");
 const PAGES_DIR = path.join(PUBLIC_DIR, "pages");
+const LOGOS_DIR = path.join(PUBLIC_DIR, "logos");
 const PUBLIC_ASSET_BASE_URL = (
   process.env.PUBLIC_ASSET_BASE_URL ||
   process.env.RUNNER_PUBLIC_BASE_URL ||
@@ -4097,7 +4098,7 @@ async function handleRequest(req, res) {
       sendJson(res, 200, { ok: true, public_url: saved.public_url, asset_id: assetRecord.id });
       return;
     } catch (e) {
-      console.error("❌ /generate-logo failed:", e?.message || e);
+      console.error("❌ /generate-logo failed:", e?.message || e, e?.stack || "");
       sendJson(res, 500, { ok: false, error: String(e?.message || e) });
       return;
     }
@@ -4114,6 +4115,7 @@ async function main() {
   await ensureDir(GENERATED_IMAGES_DIR);
   await ensureDir(BANNERS_DIR);
   await ensureDir(PAGES_DIR);
+  await ensureDir(LOGOS_DIR);
   await auth();
   if (openai) {
     console.log("🤖 OpenAI is enabled for copywriter");
