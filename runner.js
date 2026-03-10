@@ -3426,25 +3426,6 @@ async function buildLandingPageHTML({ brief, copy, images, logoDataUrl, logoUrl,
   const isHebrew = lang === "he";
   const dir = isHebrew ? "rtl" : "ltr";
 
-  // Resolve form fields
-  const defaultFields = [
-    { label: isHebrew ? "שם מלא" : "Full Name", type: "text", name: "name", required: true },
-    { label: isHebrew ? "טלפון" : "Phone", type: "tel", name: "phone", required: true },
-    { label: isHebrew ? "אימייל" : "Email", type: "email", name: "email", required: false },
-  ];
-  const formFields = (config.form_fields && config.form_fields.length > 0)
-    ? config.form_fields
-    : defaultFields;
-
-  const submitText = config.submit_button_text || (isHebrew ? "שלח פרטים" : "Send Details");
-  const zapierWebhook = config.zapier_webhook_url || "";
-  const redirectUrl = config.redirect_url || "";
-  const metaPixelId = config.meta_pixel_id || "";
-  const whatsappEnabled = config.whatsapp_enabled !== false && config.whatsapp_number;
-  const whatsappNumber = config.whatsapp_number || "";
-  const whatsappMessage = config.whatsapp_message || (isHebrew ? "שלום, אני מעוניין לקבל מידע נוסף" : "Hello, I would like more information");
-  const phoneInNav = config.phone_in_nav || "";
-  const pageSlug = config.page_slug || "landing";
   const template = config.template || "dark_luxury";
   const colors = buildColorsFromPalette(config.color_palette, template);
 
