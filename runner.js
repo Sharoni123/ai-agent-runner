@@ -1703,17 +1703,22 @@ async function generateImagesWithAI(task, related = {}) {
     let imageBase64 = null;
     let imageMimeType = "image/png";
 
-    // Retry up to 3 times — Gemini image generation can be flaky
+    // Retry up to 3 times with progressively simpler prompts — Gemini image gen (preview model) can refuse complex prompts
+    const promptAttempts = [
+      plan.prompt,
+      `Photorealistic aerial view of modern luxury residential towers at golden hour. Blue sky, green landscaping. No text, no logos.`,
+      `Beautiful modern city skyline at sunset. Architecture photography. Ultra sharp. No text.`,
+    ];
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         if (attempt > 1) {
-          const delay = attempt === 2 ? 10000 : 20000;
-          console.log(`🔄 Retry image generation for ${plan.banner_name} (attempt ${attempt}/3) after ${delay/1000}s...`);
+          const delay = attempt === 2 ? 8000 : 15000;
+          console.log(`🔄 Retry image generation for ${plan.banner_name} (attempt ${attempt}/3, simpler prompt)...`);
           await new Promise(r => setTimeout(r, delay));
         }
         const bgResponse = await gemini.models.generateContent({
           model: GEMINI_IMAGE_MODEL,
-          contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
+          contents: [{ role: "user", parts: [{ text: promptAttempts[attempt - 1] }] }],
           config: {
             responseModalities: ["IMAGE"],
             imageConfig: { aspectRatio: plan.aspect_ratio },
