@@ -285,12 +285,20 @@ async function getClientAssets(task) {
 
     const pbUrl = process.env.POCKETBASE_URL || "";
     const logoUrls = assetRecords
-      .filter(a => a.asset_type === "logo" && a.file)
-      .map(a => `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`);
+      .filter(a => a.asset_type === "logo")
+      .map(a => a.file
+        ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
+        : a.file_url || ""
+      )
+      .filter(Boolean);
 
     const photoUrls = assetRecords
-      .filter(a => a.asset_type === "photo" && a.file)
-      .map(a => `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`);
+      .filter(a => a.asset_type === "photo")
+      .map(a => a.file
+        ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
+        : a.file_url || ""
+      )
+      .filter(Boolean);
 
     console.log(`📎 Client assets loaded — ${logoUrls.length} logos, ${photoUrls.length} photos`);
 
@@ -4050,6 +4058,50 @@ async function handleRequest(req, res) {
       return;
     }
   }
+  // ── /generate-logo — Generate a logo with Gemini and save to client_assets ──
+  if (req.method === "POST" && url.pathname === "/generate-logo") {
+    try {
+      const body = await readJsonBody(req);
+      const { goalId, brandName } = body;
+      if (!goalId || !brandName) {
+        sendJson(res, 400, { ok: false, error: "Missing goalId or brandName" });
+        return;
+      }
+      console.log(`🎨 /generate-logo: generating logo for "${brandName}" (goal: ${goalId})`);
+
+      // Generate logo with Gemini (returns data URL)
+      const dataUrl = await generateLogoWithGemini(brandName);
+      const base64  = dataUrl.split(",")[1];
+      const mimeType = dataUrl.match(/data:(image\/[\w+]+);/)?.[1] || "image/png";
+
+      // Save to public /files/logos/
+      const saved = await saveGeneratedImageToPublic({
+        subdir:       "logos",
+        filenameBase: `logo-${slugify(brandName)}-${randomUUID()}`,
+        base64,
+        mimeType,
+        targetWidth:  400,
+        targetHeight: 400,
+      });
+
+      // Save to PocketBase client_assets (using file_url text field as fallback)
+      const assetRecord = await pb.collection("client_assets").create({
+        goal_id:    goalId,
+        asset_type: "logo",
+        name:       `${brandName} - AI Generated Logo`,
+        file_url:   saved.public_url,
+      });
+
+      console.log(`✅ Logo generated and saved: ${saved.public_url}`);
+      sendJson(res, 200, { ok: true, public_url: saved.public_url, asset_id: assetRecord.id });
+      return;
+    } catch (e) {
+      console.error("❌ /generate-logo failed:", e?.message || e);
+      sendJson(res, 500, { ok: false, error: String(e?.message || e) });
+      return;
+    }
+  }
+
   sendJson(res, 404, {
     ok: false,
     error: "Not found",
