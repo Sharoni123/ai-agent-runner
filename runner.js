@@ -1202,12 +1202,14 @@ async function createStructuredResponse({
   userPrompt,
   schemaName,
   schema,
+  maxOutputTokens = 4000,
 }) {
   if (!openai) {
     throw new Error("OPENAI_API_KEY is missing");
   }
   const response = await openai.responses.create({
     model,
+    max_output_tokens: maxOutputTokens,
     input: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -1244,7 +1246,7 @@ async function generateArticleWithAI(task) {
     keyPoints.length > 0
       ? keyPoints.map((p, i) => `${i + 1}. ${p}`).join("\n")
       : "אין";
-  const previousText = normalizeText(previousOutput.article_text, "");
+  const previousText = normalizeText(previousOutput.article_text, "").slice(0, 1200);
   const previousTitle = normalizeText(previousOutput.title, "");
   const revisionNotesText =
     notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n}`).join("\n") : "אין";
