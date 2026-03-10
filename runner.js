@@ -1703,24 +1703,35 @@ async function generateImagesWithAI(task, related = {}) {
     let imageBase64 = null;
     let imageMimeType = "image/png";
 
-    // generateContent with IMAGE modality — confirmed working on v1beta
-    const bgResponse = await gemini.models.generateContent({
-      model: GEMINI_IMAGE_MODEL,
-      contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
-      config: {
-        responseModalities: ["IMAGE"],
-        imageConfig: {
-          aspectRatio: plan.aspect_ratio,
-        },
-      },
-    });
-    const bgImages = extractGeminiInlineImages(bgResponse);
-    if (!bgImages[0]?.data) {
-      throw new Error(`Gemini returned no image for background ${plan.banner_name}`);
+    // Retry up to 3 times — Gemini image generation can be flaky
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          const delay = attempt === 2 ? 10000 : 20000;
+          console.log(`🔄 Retry image generation for ${plan.banner_name} (attempt ${attempt}/3) after ${delay/1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+        const bgResponse = await gemini.models.generateContent({
+          model: GEMINI_IMAGE_MODEL,
+          contents: [{ role: "user", parts: [{ text: plan.prompt }] }],
+          config: {
+            responseModalities: ["IMAGE"],
+            imageConfig: { aspectRatio: plan.aspect_ratio },
+          },
+        });
+        const bgImages = extractGeminiInlineImages(bgResponse);
+        if (!bgImages[0]?.data) {
+          throw new Error(`Gemini returned no image for background ${plan.banner_name}`);
+        }
+        imageBase64 = bgImages[0].data;
+        imageMimeType = bgImages[0].mime_type || "image/png";
+        console.log(`✅ Background generated for ${plan.banner_name} (attempt ${attempt})`);
+        break;
+      } catch (err) {
+        console.error(`⚠️ Image generation attempt ${attempt}/3 failed for ${plan.banner_name}:`, err?.message || err);
+        if (attempt === 3) throw err;
+      }
     }
-    imageBase64 = bgImages[0].data;
-    imageMimeType = bgImages[0].mime_type || "image/png";
-    console.log(`✅ Background generated for ${plan.banner_name}`);
 
     const fileBase = `${slugify(briefTitle)}-${slugify(plan.banner_name)}-${randomUUID()}`;
 
@@ -3544,19 +3555,35 @@ async function runLandingPageBuilder(task) {
       normalizeText(item.type).toLowerCase() === "background_images" &&
       normalizeText(item.status).toLowerCase() === "done"
   );
+  const bannerComposeTask = siblings.find(
+    (item) =>
+      normalizeText(item.type).toLowerCase() === "banner_compose" &&
+      normalizeText(item.status).toLowerCase() === "done"
+  );
 
   const copyOutput = copyTask?.output_data || {};
   const visualOutput = visualTask?.output_data || {};
   const imageOutput = imageTask?.output_data || {};
+  const bannerComposeOutput = bannerComposeTask?.output_data || {};
 
-  // ── 2. Collect images (sibling-generated first, then asset URLs) ───────────
+  // ── 2. Collect images ─────────────────────────────────────────────────────
+  // Priority: generated_images → composed banner images → client asset photos
   const siblingImages = Array.isArray(imageOutput.generated_images)
     ? imageOutput.generated_images
         .map((img) => img.image_public_url || img.public_url || img.url || "")
         .filter(Boolean)
     : [];
+
+  // Fallback: use composed banner public URLs when image_generator had no output
+  const bannerImages = siblingImages.length === 0 && Array.isArray(bannerComposeOutput.composed_banners)
+    ? bannerComposeOutput.composed_banners
+        .map((b) => b.public_url || b.image_public_url || "")
+        .filter(Boolean)
+    : [];
+
   const assetImages = assets.images || [];
-  const allImages = [...siblingImages, ...assetImages];
+  const allImages = [...siblingImages, ...bannerImages, ...assetImages];
+  console.log(`🖼️ Landing page images: ${siblingImages.length} generated, ${bannerImages.length} from banners, ${assetImages.length} from assets`);
 
   // ── 3. Resolve logo ────────────────────────────────────────────────────────
   // Priority: input.logo_url > assets.logos[0] > generate with Gemini
