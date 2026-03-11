@@ -17,6 +17,13 @@ const GENERATED_IMAGES_DIR = path.join(PUBLIC_DIR, "generated-images");
 const BANNERS_DIR = path.join(PUBLIC_DIR, "banners");
 const PAGES_DIR = path.join(PUBLIC_DIR, "pages");
 const LOGOS_DIR = path.join(PUBLIC_DIR, "logos");
+
+// ── GitHub + Cloudflare Pages integration ────────────────────────────────────
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
+const GITHUB_REPO  = process.env.GITHUB_REPO  || "Sharoni123/landing-pages";
+const CLOUDFLARE_PAGES_BASE = (process.env.CLOUDFLARE_PAGES_BASE || "https://landing-pages.sharoni-themaster.workers.dev").replace(/\/+$/, "");
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PUBLIC_ASSET_BASE_URL = (
   process.env.PUBLIC_ASSET_BASE_URL ||
   process.env.RUNNER_PUBLIC_BASE_URL ||
@@ -2957,6 +2964,55 @@ async function runCopywriter(task) {
 
 // ─── Landing Page Builder ────────────────────────────────────────────────────
 
+// ── Push landing page HTML to GitHub → auto-deploys to Cloudflare Pages ──────
+async function pushLandingPageToGitHub(slug, htmlContent) {
+  if (!GITHUB_TOKEN) {
+    console.warn("⚠️ GITHUB_TOKEN not set — skipping Cloudflare push");
+    return null;
+  }
+  const filePath = `campaigns/${slug}/index.html`;
+  const apiUrl   = `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`;
+  const encoded  = Buffer.from(htmlContent, "utf8").toString("base64");
+  let sha = null;
+  try {
+    const check = await fetch(apiUrl, {
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (check.ok) {
+      const existing = await check.json();
+      sha = existing.sha || null;
+      console.log(`📄 File exists on GitHub (SHA: ${sha?.slice(0, 7)}) — will update`);
+    }
+  } catch { /* file doesn't exist yet */ }
+  const body = {
+    message: `Deploy landing page: ${slug}`,
+    content: encoded,
+    ...(sha ? { sha } : {}),
+  };
+  const res = await fetch(apiUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`GitHub push failed (${res.status}): ${errText}`);
+  }
+  const cloudflareUrl = `${CLOUDFLARE_PAGES_BASE}/campaigns/${slug}/index.html`;
+  console.log(`✅ Landing page pushed to GitHub → Cloudflare: ${cloudflareUrl}`);
+  return cloudflareUrl;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function generateLogoWithGemini(brandName, description = "") {
   if (!gemini) throw new Error("Gemini not configured");
   console.log(`🎨 Generating logo for brand: ${brandName}${description ? ` (${description})` : ""}`);
@@ -4175,9 +4231,14 @@ async function runLandingPageBuilder(task) {
   const fileName = `${safeSlug}.html`;
   const filePath = path.join(PAGES_DIR, fileName);
   await fs.writeFile(filePath, html, "utf8");
-  const publicUrl = PUBLIC_ASSET_BASE_URL
-    ? `${PUBLIC_ASSET_BASE_URL}/pages/${fileName}`
-    : `/pages/${fileName}`;
+  let cloudflareUrl = null;
+  try {
+    cloudflareUrl = await pushLandingPageToGitHub(safeSlug, html);
+  } catch (ghErr) {
+    console.error("⚠️ GitHub push failed (landing page still saved locally):", ghErr?.message || ghErr);
+  }
+  const publicUrl = cloudflareUrl
+    || (PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/pages/${fileName}` : `/pages/${fileName}`);
   console.log(`✅ Landing page saved: ${filePath}`);
 
   return {
@@ -4195,6 +4256,7 @@ async function runLandingPageBuilder(task) {
       file_name: fileName,
       file_path: filePath,
       public_url: publicUrl,
+      cloudflare_url: cloudflareUrl,
       page_slug: safeSlug,
       language: config.language,
       whatsapp_enabled: config.whatsapp_enabled,
