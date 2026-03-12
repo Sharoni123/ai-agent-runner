@@ -272,58 +272,61 @@ function getAssets(task) {
 async function getClientAssets(task) {
   const base = getAssets(task);
   try {
-    // Find goal_id via campaign_id on the task
-    const campaignId = task.campaign_id || task.source_task_id || "";
-    if (!campaignId) return base;
-
-    // Look up the goal that has this campaign_id
-    const goals = await pb.collection("goals").getFullList({
-      filter: `campaign_id = "${campaignId}"`,
-    }).catch(() => []);
-
-    const goalId = goals[0]?.id;
-    if (!goalId) return base;
-
-    // Fetch assets for this goal
-    const assetRecords = await pb.collection("client_assets").getFullList({
-      filter: `goal_id = "${goalId}"`,
-    }).catch(() => []);
-
-    if (!assetRecords.length) return base;
-
-    const pbUrl = process.env.POCKETBASE_URL || "";
-    const logoUrls = assetRecords
-      .filter(a => a.asset_type === "logo")
-      .map(a => a.file
-        ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
-        : a.file_url || ""
-      )
-      .filter(Boolean);
-
-    const photoUrls = assetRecords
-      .filter(a => a.asset_type === "photo")
-      .map(a => a.file
-        ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
-        : a.file_url || ""
-      )
-      .filter(Boolean);
-
-    console.log(`📎 Client assets loaded — ${logoUrls.length} logos, ${photoUrls.length} photos`);
-
-    return {
-      logos:       [...logoUrls, ...base.logos],
-      images:      [...photoUrls, ...base.images],
-      inspiration: base.inspiration,
-      all:         [...logoUrls, ...photoUrls, ...base.all],
-      hasLogo:     logoUrls.length > 0,
-      hasPhotos:   photoUrls.length > 0,
-      logoUrl:     logoUrls[0] || null,
-      photoUrls,
-    };
+    // Use goal_id directly from task — much simpler and reliable
+    const goalId = task.goal_id || "";
+    if (!goalId) {
+      // Fallback: try to find goal via campaign_id
+      const campaignId = task.campaign_id || task.source_task_id || "";
+      if (!campaignId) return base;
+      const goals = await pb.collection("goals").getFullList({
+        filter: `campaign_id = "${campaignId}"`,
+      }).catch(() => []);
+      if (!goals[0]?.id) return base;
+      return getAssetsByGoalId(goals[0].id, base);
+    }
+    return getAssetsByGoalId(goalId, base);
   } catch (e) {
     console.warn("⚠️ getClientAssets failed, using task assets only:", e?.message);
     return base;
   }
+}
+
+async function getAssetsByGoalId(goalId, base) {
+  const assetRecords = await pb.collection("client_assets").getFullList({
+    filter: `goal_id = "${goalId}"`,
+  }).catch(() => []);
+
+  if (!assetRecords.length) return base;
+
+  const pbUrl = process.env.POCKETBASE_URL || "";
+  const logoUrls = assetRecords
+    .filter(a => a.asset_type === "logo")
+    .map(a => a.file
+      ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
+      : a.file_url || ""
+    )
+    .filter(Boolean);
+
+  const photoUrls = assetRecords
+    .filter(a => a.asset_type === "photo")
+    .map(a => a.file
+      ? `${pbUrl}/api/files/client_assets/${a.id}/${a.file}`
+      : a.file_url || ""
+    )
+    .filter(Boolean);
+
+  console.log(`📎 Client assets loaded — ${logoUrls.length} logos, ${photoUrls.length} photos`);
+
+  return {
+    logos:       [...logoUrls, ...base.logos],
+    images:      [...photoUrls, ...base.images],
+    inspiration: base.inspiration,
+    all:         [...logoUrls, ...photoUrls, ...base.all],
+    hasLogo:     logoUrls.length > 0,
+    hasPhotos:   photoUrls.length > 0,
+    logoUrl:     logoUrls[0] || null,
+    photoUrls,
+  };
 }
 
 function escapeHtml(str) {
@@ -4151,7 +4154,7 @@ async function runLandingPageBuilder(task) {
         : null,
     page_slug: normalizeText(
       input.page_slug
-        || input.previous_output?.landing_page?.page_slug,  // reuse slug on revision
+        || input.previous_output?.landing_page?.page_slug,
       `page-${Date.now()}`
     ),
     // Form
