@@ -4149,7 +4149,11 @@ async function runLandingPageBuilder(task) {
       : Array.isArray(bannerComposeOutput?.color_palette) && bannerComposeOutput.color_palette.length >= 3
         ? bannerComposeOutput.color_palette
         : null,
-    page_slug: normalizeText(input.page_slug, `page-${Date.now()}`),
+    page_slug: normalizeText(
+      input.page_slug
+        || input.previous_output?.landing_page?.page_slug,  // reuse slug on revision
+      `page-${Date.now()}`
+    ),
     // Form
     form_fields: Array.isArray(input.form_fields) ? input.form_fields : [],
     submit_button_text: normalizeText(input.submit_button_text, ""),
