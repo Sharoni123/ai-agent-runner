@@ -272,10 +272,8 @@ function getAssets(task) {
 async function getClientAssets(task) {
   const base = getAssets(task);
   try {
-    // Use goal_id directly from task — much simpler and reliable
     const goalId = task.goal_id || "";
     if (!goalId) {
-      // Fallback: try to find goal via campaign_id
       const campaignId = task.campaign_id || task.source_task_id || "";
       if (!campaignId) return base;
       const goals = await pb.collection("goals").getFullList({
@@ -1442,9 +1440,23 @@ async function generateVisualDirectionWithAI(task) {
   const plannerBriefText = plannerBrief
     ? JSON.stringify(plannerBrief, null, 2)
     : "אין";
+
+  // Visual style directive
+  const visualStyleInput = normalizeText(getTaskInput(task).visual_style || plannerBrief?.visual_style, "auto");
+  const VISUAL_STYLE_DIRECTIVES = {
+    luxury_gold:      "סגנון: יוקרה פרמיום. פלטת צבעים: כחול כהה / שחור עמוק עם אקסנטים של זהב (#C9A84C) וכסף. טיפוגרפיה: Playfair Display / Georgia / serif. תחושה: אקסקלוסיבי, מלכותי, סופיסטיקייטד.",
+    bold_modern:      "סגנון: מודרני ועוצמתי. פלטת צבעים: לבן נקי עם אקסנט אחד חזק (כחול #1E40AF או אדום #DC2626). טיפוגרפיה: Inter / Montserrat / sans-serif. תחושה: ברור, חד, דינמי.",
+    natural_warm:     "סגנון: טבעי וחם. פלטת צבעים: גוונים של בז', חום, ירוק-עצים (#4A7C59), קרם. טיפוגרפיה: Lora / Merriweather / serif. תחושה: אורגני, אמין, נעים.",
+    corporate_trust:  "סגנון: קורפורייט מקצועי. פלטת צבעים: כחול כהה (#1E3A5F), לבן, אפור בהיר. טיפוגרפיה: Inter / Roboto / sans-serif. תחושה: מקצועי, אמין, יציב.",
+    minimal_elegant:  "סגנון: מינימליסטי ואלגנטי. פלטת צבעים: לבן / אופוויט עם שחור ואקסנט אחד עדין. הרבה מרווח לבן. טיפוגרפיה: Cormorant Garamond / serif. תחושה: בוטיק, עדין, מלוטש.",
+  };
+  const visualStyleDirective = VISUAL_STYLE_DIRECTIVES[visualStyleInput]
+    ? `\n\nהנחיית סגנון ויזואלי (חובה לעקוב): ${VISUAL_STYLE_DIRECTIVES[visualStyleInput]}`
+    : "";
+
   const systemPrompt = [
     "אתה מנהל קריאייטיב וארט דיירקטור שיווקי בכיר.",
-    'אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין נדל"ן.',
+    "אתה בונה כיוון ויזואלי ברור, ישים ומסחרי לקמפיין — בכל תחום ונישה.",
     "אתה מחזיר JSON בלבד לפי הסכמה שניתנה.",
     "אין markdown, אין הסברים, אין טקסט מחוץ ל-JSON.",
     "התוצרים צריכים להיות פרקטיים ולהתאים ליצירת באנרים, תמונות, דף נחיתה וסרטון.",
@@ -1465,6 +1477,7 @@ async function generateVisualDirectionWithAI(task) {
     `נקודות מפתח:\n${keyPoints.length ? keyPoints.join("\n") : "אין"}`,
     `Assets שסופקו:\n${assetsText}`,
     `Planner brief:\n${plannerBriefText}`,
+    visualStyleDirective ? `\n${visualStyleDirective}` : "",
     "החזר JSON בלבד עם השדות:",
     "creative_direction, visual_style, color_palette, banner_brief, landing_page_brief, video_brief, image_prompts, banner_headlines",
     "image_prompts צריכים להיות prompts מוכנים ליצירת תמונות שיווקיות.",
@@ -2969,47 +2982,17 @@ async function runCopywriter(task) {
 
 // ── Push landing page HTML to GitHub → auto-deploys to Cloudflare Pages ──────
 async function pushLandingPageToGitHub(slug, htmlContent) {
-  if (!GITHUB_TOKEN) {
-    console.warn("⚠️ GITHUB_TOKEN not set — skipping Cloudflare push");
-    return null;
-  }
+  if (!GITHUB_TOKEN) { console.warn("⚠️ GITHUB_TOKEN not set — skipping Cloudflare push"); return null; }
   const filePath = `campaigns/${slug}/index.html`;
   const apiUrl   = `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`;
   const encoded  = Buffer.from(htmlContent, "utf8").toString("base64");
   let sha = null;
   try {
-    const check = await fetch(apiUrl, {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (check.ok) {
-      const existing = await check.json();
-      sha = existing.sha || null;
-      console.log(`📄 File exists on GitHub (SHA: ${sha?.slice(0, 7)}) — will update`);
-    }
-  } catch { /* file doesn't exist yet */ }
-  const body = {
-    message: `Deploy landing page: ${slug}`,
-    content: encoded,
-    ...(sha ? { sha } : {}),
-  };
-  const res = await fetch(apiUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`GitHub push failed (${res.status}): ${errText}`);
-  }
+    const check = await fetch(apiUrl, { headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
+    if (check.ok) { const existing = await check.json(); sha = existing.sha || null; console.log(`📄 File exists on GitHub (SHA: ${sha?.slice(0,7)}) — will update`); }
+  } catch { /* new file */ }
+  const res = await fetch(apiUrl, { method: "PUT", headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28" }, body: JSON.stringify({ message: `Deploy landing page: ${slug}`, content: encoded, ...(sha ? { sha } : {}) }) });
+  if (!res.ok) { const errText = await res.text(); throw new Error(`GitHub push failed (${res.status}): ${errText}`); }
   const cloudflareUrl = `${CLOUDFLARE_PAGES_BASE}/campaigns/${slug}/index.html`;
   console.log(`✅ Landing page pushed to GitHub → Cloudflare: ${cloudflareUrl}`);
   return cloudflareUrl;
@@ -3123,7 +3106,7 @@ function renderTemplate_darkLuxury({ colors, copy, config, images, brief, logoHt
     .container{max-width:1100px;margin:0 auto;padding:0 24px}
     nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.08);padding:14px 0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between}
-    .nav-logo{height:64px;width:auto;max-width:180px;object-fit:contain}
+    .nav-logo{height:48px;width:auto;object-fit:contain}
     .nav-brand{font-size:1.3rem;font-weight:700;color:${colors.accent}}
     .nav-phone{color:${colors.accent};font-size:1.05rem;font-weight:600;text-decoration:none}
     .hero{position:relative;min-height:88vh;display:flex;align-items:center;${heroStyle}}
@@ -3240,7 +3223,7 @@ function renderTemplate_boldModern({ colors, copy, config, images, brief, logoHt
     /* NAV */
     nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(16px);border-bottom:3px solid ${colors.accent};padding:0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
-    .nav-logo{height:64px;width:auto;max-width:180px;object-fit:contain}
+    .nav-logo{height:44px;width:auto;object-fit:contain}
     .nav-brand{font-size:1.4rem;font-weight:800;color:${colors.text};letter-spacing:-0.5px}
     .nav-brand span{color:${colors.accent}}
     .nav-phone{background:${colors.accent};color:#fff;font-size:0.95rem;font-weight:700;text-decoration:none;padding:8px 20px;border-radius:6px;transition:opacity 0.2s}
@@ -3378,7 +3361,7 @@ function renderTemplate_minimalClean({ colors, copy, config, images, brief, logo
     /* NAV */
     nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,0.97);backdrop-filter:blur(16px);border-bottom:1px solid #f0f0f0;padding:0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
-    .nav-logo{height:64px;width:auto;max-width:180px;object-fit:contain}
+    .nav-logo{height:40px;width:auto;object-fit:contain}
     .nav-brand{font-size:1.25rem;font-weight:600;color:${colors.text};letter-spacing:-0.3px}
     .nav-phone{color:${colors.accent};font-size:0.95rem;font-weight:600;text-decoration:none;border-bottom:2px solid ${colors.accent};padding-bottom:2px}
     /* HERO — centered editorial style */
@@ -3536,7 +3519,7 @@ function renderTemplate_cleanSplit({ colors, copy, config, images, brief, logoHt
     /* NAV */
     nav{background:#fff;border-bottom:1px solid #e8e4dc;padding:0;position:sticky;top:0;z-index:100}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px;gap:32px}
-    .nav-logo{height:64px;width:auto;max-width:180px;object-fit:contain}
+    .nav-logo{height:40px;width:auto;object-fit:contain}
     .nav-brand{font-size:1.4rem;font-weight:700;color:#1a1a1a;letter-spacing:-0.5px}
     .nav-links{display:flex;gap:28px;list-style:none}
     .nav-links a{color:#555;font-size:0.88rem;text-decoration:none;font-weight:500;transition:color 0.2s}
@@ -3734,7 +3717,7 @@ function renderTemplate_highConvert({ colors, copy, config, images, brief, logoH
     /* NAV */
     nav{background:#fff;border-bottom:2px solid ${colors.accent};padding:0;position:sticky;top:0;z-index:100}
     .nav-inner{display:flex;align-items:center;justify-content:center;height:72px}
-    .nav-logo{height:64px;width:auto;max-width:180px;object-fit:contain}
+    .nav-logo{height:52px;width:auto;object-fit:contain}
     .nav-brand{font-size:1.5rem;font-weight:900;color:${colors.accent};letter-spacing:-0.5px;text-transform:uppercase}
     /* HERO — centered */
     .hero{padding:56px 0 40px;text-align:center;position:relative;background:#fff}
@@ -4153,8 +4136,7 @@ async function runLandingPageBuilder(task) {
         ? bannerComposeOutput.color_palette
         : null,
     page_slug: normalizeText(
-      input.page_slug
-        || input.previous_output?.landing_page?.page_slug,
+      input.page_slug || input.previous_output?.landing_page?.page_slug,
       `page-${Date.now()}`
     ),
     // Form
