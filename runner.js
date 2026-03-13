@@ -2723,6 +2723,7 @@ function buildPlannerChildren(task, normalizedBrief) {
     key_points: normalizedBrief.key_points,
     planner_brief: normalizedBrief,
     assets: normalizedBrief.assets,
+    visual_style: normalizeText(getTaskInput(task).visual_style) || undefined,
   };
   return [
     {
