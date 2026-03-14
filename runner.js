@@ -22,6 +22,13 @@ const LOGOS_DIR = path.join(PUBLIC_DIR, "logos");
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
 const GITHUB_REPO  = process.env.GITHUB_REPO  || "Sharoni123/landing-pages";
 const CLOUDFLARE_PAGES_BASE = (process.env.CLOUDFLARE_PAGES_BASE || "https://landing-pages.sharoni-themaster.workers.dev").replace(/\/+$/, "");
+
+// ── Video pipeline constants ──────────────────────────────────────────────────
+const ELEVENLABS_API_KEY  = process.env.ELEVENLABS_API_KEY || "";
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // fallback: Adam
+const PEXELS_API_KEY      = process.env.PEXELS_API_KEY || "";
+const CREATOMATE_API_KEY  = process.env.CREATOMATE_API_KEY || "";
+// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PUBLIC_ASSET_BASE_URL = (
@@ -4458,6 +4465,364 @@ Be concise and direct.`;
   };
 }
 
+
+// ── Video Producer Agent ──────────────────────────────────────────────────────
+async function runVideoProducer(task) {
+  const input = getTaskInput(task);
+  const briefTitle = getBriefTitle(task);
+  const plannerBrief = input.planner_brief ?? null;
+  const visualBrief = input.previous_output?.video_brief || plannerBrief?.video_brief || "";
+  const language = input.language || "he";
+  const assets = await getClientAssets(task);
+
+  console.log(`🎬 Video producer starting for: ${briefTitle}`);
+
+  // ── Step 1: Generate video script with scene breakdown ──
+  const scriptPrompt = `
+אתה כותב תסריט לסרטון שיווקי קצר (45-60 שניות) בסגנון TikTok/Reels.
+הסרטון: ${briefTitle}
+כיוון ויזואלי: ${visualBrief || "שיווקי, מודרני, מרתק"}
+שפה: עברית
+
+צור JSON בלבד עם המבנה הבא (6-8 סצנות):
+{
+  "title": "כותרת הסרטון",
+  "total_duration": 55,
+  "voiceover_text": "הטקסט המלא של הקריינות - כל הטקסט ברציפות",
+  "music_prompt": "תיאור קצר באנגלית של המוזיקה המתאימה, למשל: epic cinematic background music, dramatic and inspiring",
+  "scenes": [
+    {
+      "index": 0,
+      "duration": 7,
+      "text_overlay": "הטקסט שמופיע על המסך",
+      "background_type": "video",
+      "pexels_query": "search query in English for pexels video",
+      "description": "תיאור הסצנה"
+    }
+  ]
+}
+
+חוקים:
+- background_type יכול להיות "video" (מ-Pexels) או "image" (AI generated)
+- pexels_query: שאילתת חיפוש באנגלית ל-Pexels (2-4 מילים, כמו "modern city skyline" או "business meeting office")
+- אם background_type = "image" תן image_prompt באנגלית לייצור תמונה עם AI
+- text_overlay: הטקסט שיופיע על המסך - קצר, מקסימום 8 מילים לסצנה
+- voiceover_text: הטקסט המלא של הקריינות ברציפות
+- JSON בלבד, ללא markdown
+`.trim();
+
+  // Call Gemini for script generation
+  let scriptData;
+  try {
+    const geminiRes = await gemini.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [{ role: "user", parts: [{ text: scriptPrompt }] }],
+      config: { maxOutputTokens: 1200, temperature: 0.7 },
+    });
+    const scriptRaw = geminiRes.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const clean = scriptRaw.replace(/```json|```/g, "").trim();
+    scriptData = JSON.parse(clean);
+  } catch (e) {
+    throw new Error(`Failed to generate/parse video script: ${e.message}`);
+  }
+
+  console.log(`📝 Script ready: ${scriptData.scenes?.length} scenes, voiceover: ${scriptData.voiceover_text?.length} chars`);
+
+  // ── Step 2: Generate voiceover with ElevenLabs ──
+  let voiceoverUrl = null;
+  let voiceoverBuffer = null;
+  if (ELEVENLABS_API_KEY && scriptData.voiceover_text) {
+    try {
+      console.log(`🎙️ Generating voiceover...`);
+      const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: scriptData.voiceover_text,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.0 },
+        }),
+      });
+      if (!ttsRes.ok) {
+        const err = await ttsRes.text();
+        console.error(`⚠️ ElevenLabs TTS failed: ${ttsRes.status} ${err}`);
+      } else {
+        voiceoverBuffer = Buffer.from(await ttsRes.arrayBuffer());
+        // Save voiceover to disk and upload to PocketBase
+        const voiceFile = `voiceover-${Date.now()}.mp3`;
+        const voicePath = path.join(PUBLIC_DIR, voiceFile);
+        await fs.writeFile(voicePath, voiceoverBuffer);
+        voiceoverUrl = PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/${voiceFile}` : `/${voiceFile}`;
+        console.log(`✅ Voiceover generated: ${voiceoverUrl}`);
+      }
+    } catch (e) {
+      console.error(`⚠️ Voiceover generation failed:`, e?.message);
+    }
+  }
+
+  // ── Step 3: Generate background music with ElevenLabs ──
+  let musicUrl = null;
+  if (ELEVENLABS_API_KEY && scriptData.music_prompt) {
+    try {
+      console.log(`🎵 Generating background music...`);
+      const musicRes = await fetch(`https://api.elevenlabs.io/v1/sound-generation`, {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: scriptData.music_prompt,
+          duration_seconds: scriptData.total_duration || 55,
+          prompt_influence: 0.3,
+        }),
+      });
+      if (!musicRes.ok) {
+        console.warn(`⚠️ Music generation failed: ${musicRes.status}`);
+      } else {
+        const musicBuffer = Buffer.from(await musicRes.arrayBuffer());
+        const musicFile = `music-${Date.now()}.mp3`;
+        const musicPath = path.join(PUBLIC_DIR, musicFile);
+        await fs.writeFile(musicPath, musicBuffer);
+        musicUrl = PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/${musicFile}` : `/${musicFile}`;
+        console.log(`✅ Background music generated: ${musicUrl}`);
+      }
+    } catch (e) {
+      console.warn(`⚠️ Music generation failed:`, e?.message);
+    }
+  }
+
+  // ── Step 4: Fetch Pexels videos / generate AI images per scene ──
+  const scenesWithMedia = await Promise.all(scriptData.scenes.map(async (scene, i) => {
+    let mediaUrl = null;
+    let mediaType = scene.background_type || "video";
+
+    if (mediaType === "video" && PEXELS_API_KEY && scene.pexels_query) {
+      try {
+        const pexRes = await fetch(
+          `https://api.pexels.com/videos/search?query=${encodeURIComponent(scene.pexels_query)}&per_page=5&orientation=portrait`,
+          { headers: { Authorization: PEXELS_API_KEY } }
+        );
+        if (pexRes.ok) {
+          const pexData = await pexRes.json();
+          const videos = pexData.videos || [];
+          if (videos.length > 0) {
+            const vid = videos[Math.floor(Math.random() * Math.min(3, videos.length))];
+            // Pick best quality portrait video file
+            const files = vid.video_files || [];
+            const portrait = files.find(f => f.quality === "hd" && f.width < f.height)
+              || files.find(f => f.width < f.height)
+              || files[0];
+            if (portrait) {
+              mediaUrl = portrait.link;
+              console.log(`🎥 Scene ${i}: Pexels video found for "${scene.pexels_query}"`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`⚠️ Scene ${i} Pexels fetch failed:`, e?.message);
+      }
+    }
+
+    // Fallback to AI image if no video found or background_type = "image"
+    if (!mediaUrl) {
+      mediaType = "image";
+      const imgPrompt = scene.image_prompt || `cinematic marketing visual for: ${briefTitle}, scene ${i + 1}, ${scene.description || ""}`;
+      try {
+        const imgResult = await generateGeminiImage({
+          prompt: imgPrompt,
+          aspect_ratio: "9:16",
+        });
+        if (imgResult?.url) {
+          mediaUrl = imgResult.url;
+          console.log(`🖼️ Scene ${i}: AI image generated`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Scene ${i} image gen failed:`, e?.message);
+      }
+    }
+
+    return { ...scene, media_url: mediaUrl, media_type: mediaType };
+  }));
+
+  // ── Step 5: Assemble video with Creatomate ──
+  let videoUrl = null;
+  let creatomateId = null;
+
+  if (CREATOMATE_API_KEY && scenesWithMedia.length > 0) {
+    try {
+      console.log(`🎬 Assembling video with Creatomate...`);
+
+      // Build Creatomate composition
+      const elements = [];
+      let timeOffset = 0;
+
+      for (const scene of scenesWithMedia) {
+        const dur = scene.duration || 7;
+
+        // Background media element
+        if (scene.media_url) {
+          elements.push({
+            type: scene.media_type === "video" ? "video" : "image",
+            track: 1,
+            time: timeOffset,
+            duration: dur,
+            source: scene.media_url,
+            fit: "cover",
+            animations: scene.media_type === "image" ? [
+              { time: "start", duration: dur, easing: "linear", type: "scale", start_scale: "100%", end_scale: "110%" }
+            ] : [],
+          });
+        }
+
+        // Dark overlay for text readability
+        elements.push({
+          type: "shape",
+          track: 2,
+          time: timeOffset,
+          duration: dur,
+          width: "100%",
+          height: "100%",
+          fill_color: "rgba(0,0,0,0.45)",
+        });
+
+        // Text overlay
+        if (scene.text_overlay) {
+          elements.push({
+            type: "text",
+            track: 3,
+            time: timeOffset,
+            duration: dur,
+            text: scene.text_overlay,
+            font_family: "Arial",
+            font_size: "7.5 vmin",
+            font_weight: "700",
+            fill_color: "#FFFFFF",
+            stroke_color: "rgba(0,0,0,0.6)",
+            stroke_width: "0.4 vmin",
+            x_alignment: "50%",
+            y_alignment: "75%",
+            x: "50%",
+            y: "75%",
+            width: "85%",
+            text_direction: "rtl",
+            shadow_color: "rgba(0,0,0,0.8)",
+            shadow_blur: "4 vmin",
+            animations: [
+              { time: "start", duration: 0.5, easing: "ease-out", type: "text-appear" }
+            ],
+          });
+        }
+
+        timeOffset += dur;
+      }
+
+      // Add voiceover
+      if (voiceoverUrl) {
+        elements.push({
+          type: "audio",
+          track: 4,
+          time: 0,
+          source: voiceoverUrl,
+          volume: "100%",
+        });
+      }
+
+      // Add background music (lower volume)
+      if (musicUrl) {
+        elements.push({
+          type: "audio",
+          track: 5,
+          time: 0,
+          source: musicUrl,
+          volume: "15%",
+        });
+      }
+
+      const composition = {
+        output_format: "mp4",
+        width: 1080,
+        height: 1920,
+        frame_rate: 25,
+        duration: timeOffset,
+        elements,
+      };
+
+      const ctRes = await fetch("https://api.creatomate.com/v1/renders", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${CREATOMATE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ source: composition }),
+      });
+
+      if (!ctRes.ok) {
+        const err = await ctRes.text();
+        throw new Error(`Creatomate render failed: ${ctRes.status} ${err}`);
+      }
+
+      const ctData = await ctRes.json();
+      const render = Array.isArray(ctData) ? ctData[0] : ctData;
+      creatomateId = render?.id;
+      console.log(`⏳ Creatomate render started: ${creatomateId}`);
+
+      // ── Poll for completion ──
+      let attempts = 0;
+      const maxAttempts = 40; // 40 × 15s = 10 minutes max
+      while (attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 15000)); // wait 15s
+        attempts++;
+        const pollRes = await fetch(`https://api.creatomate.com/v1/renders/${creatomateId}`, {
+          headers: { Authorization: `Bearer ${CREATOMATE_API_KEY}` },
+        });
+        if (!pollRes.ok) continue;
+        const pollData = await pollRes.json();
+        console.log(`⏳ Render status: ${pollData.status} (attempt ${attempts})`);
+        if (pollData.status === "succeeded") {
+          videoUrl = pollData.url;
+          console.log(`✅ Video ready: ${videoUrl}`);
+          break;
+        }
+        if (pollData.status === "failed") {
+          throw new Error(`Creatomate render failed: ${JSON.stringify(pollData.error)}`);
+        }
+        // Update task with progress
+        await pb.collection("tasks").update(task.id, {
+          output_data: {
+            ok: true,
+            status: "rendering",
+            progress: Math.round((attempts / maxAttempts) * 100),
+            creatomate_id: creatomateId,
+            brief_title: briefTitle,
+          }
+        }).catch(() => {});
+      }
+
+      if (!videoUrl) throw new Error("Creatomate render timed out after 10 minutes");
+
+    } catch (e) {
+      console.error("⚠️ Creatomate assembly failed:", e?.message);
+    }
+  }
+
+  return {
+    ok: true,
+    brief_title: briefTitle,
+    video_url: videoUrl,
+    voiceover_url: voiceoverUrl,
+    music_url: musicUrl,
+    creatomate_id: creatomateId,
+    script: scriptData,
+    scenes: scenesWithMedia,
+    duration: scriptData.total_duration,
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const agents = {
   planner: async (task) => {
     return await runPlanner(task);
@@ -4519,14 +4884,7 @@ const agents = {
     return runLandingPageBuilder(task);
   },
   video_producer: async (task) => {
-    return {
-      ok: true,
-      note: "video_producer placeholder",
-      brief_title: getBriefTitle(task),
-      planner_brief: getTaskInput(task).planner_brief ?? null,
-      assets: getAssets(task),
-      script: "תסריט קצר לדוגמה",
-    };
+    return await runVideoProducer(task);
   },
   qa: async (task) => {
     return runQA(task);
