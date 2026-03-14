@@ -4515,7 +4515,7 @@ async function runVideoProducer(task) {
   let scriptData;
   try {
     const geminiRes = await gemini.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: [{ role: "user", parts: [{ text: scriptPrompt }] }],
       config: { maxOutputTokens: 1200, temperature: 0.7 },
     });
