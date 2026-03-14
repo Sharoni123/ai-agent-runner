@@ -4556,11 +4556,22 @@ async function runVideoProducer(task) {
         console.error(`⚠️ ElevenLabs TTS failed: ${ttsRes.status} ${err}`);
       } else {
         voiceoverBuffer = Buffer.from(await ttsRes.arrayBuffer());
-        // Save voiceover to disk and upload to PocketBase
-        const voiceFile = `voiceover-${Date.now()}.mp3`;
-        const voicePath = path.join(PUBLIC_DIR, voiceFile);
-        await fs.writeFile(voicePath, voiceoverBuffer);
-        voiceoverUrl = PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/${voiceFile}` : `/${voiceFile}`;
+        // Upload voiceover to PocketBase so it has a stable public URL
+        try {
+          const voiceBlob = new Blob([voiceoverBuffer], { type: "audio/mpeg" });
+          const voiceFormData = new FormData();
+          voiceFormData.append("file", voiceBlob, `voiceover-${Date.now()}.mp3`);
+          voiceFormData.append("asset_type", "voiceover");
+          voiceFormData.append("task_id", task.id);
+          const voiceRecord = await pb.collection("assets").create(voiceFormData);
+          voiceoverUrl = `${PB_URL}/api/files/assets/${voiceRecord.id}/${voiceRecord.file}`;
+        } catch (uploadErr) {
+          console.warn("⚠️ PocketBase upload failed, falling back to local:", uploadErr?.message);
+          const voiceFile = `voiceover-${Date.now()}.mp3`;
+          const voicePath = path.join(PUBLIC_DIR, voiceFile);
+          await fs.writeFile(voicePath, voiceoverBuffer);
+          voiceoverUrl = PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/${voiceFile}` : `/${voiceFile}`;
+        }
         console.log(`✅ Voiceover generated: ${voiceoverUrl}`);
       }
     } catch (e) {
