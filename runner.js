@@ -3116,7 +3116,7 @@ function renderTemplate_darkLuxury({ colors, copy, config, images, brief, logoHt
     .container{max-width:1100px;margin:0 auto;padding:0 24px}
     nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.08);padding:14px 0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between}
-    .nav-logo{height:48px;width:auto;object-fit:contain}
+    .nav-logo{height:72px;width:auto;max-width:200px;object-fit:contain}
     .nav-brand{font-size:1.3rem;font-weight:700;color:${colors.accent}}
     .nav-phone{color:${colors.accent};font-size:1.05rem;font-weight:600;text-decoration:none}
     .hero{position:relative;min-height:88vh;display:flex;align-items:center;${heroStyle}}
@@ -3233,7 +3233,7 @@ function renderTemplate_boldModern({ colors, copy, config, images, brief, logoHt
     /* NAV */
     nav{position:sticky;top:0;z-index:100;background:${colors.navBg};backdrop-filter:blur(16px);border-bottom:3px solid ${colors.accent};padding:0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
-    .nav-logo{height:44px;width:auto;object-fit:contain}
+    .nav-logo{height:72px;width:auto;max-width:200px;object-fit:contain}
     .nav-brand{font-size:1.4rem;font-weight:800;color:${colors.text};letter-spacing:-0.5px}
     .nav-brand span{color:${colors.accent}}
     .nav-phone{background:${colors.accent};color:#fff;font-size:0.95rem;font-weight:700;text-decoration:none;padding:8px 20px;border-radius:6px;transition:opacity 0.2s}
@@ -3371,7 +3371,7 @@ function renderTemplate_minimalClean({ colors, copy, config, images, brief, logo
     /* NAV */
     nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,0.97);backdrop-filter:blur(16px);border-bottom:1px solid #f0f0f0;padding:0}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:60px}
-    .nav-logo{height:40px;width:auto;object-fit:contain}
+    .nav-logo{height:72px;width:auto;max-width:200px;object-fit:contain}
     .nav-brand{font-size:1.25rem;font-weight:600;color:${colors.text};letter-spacing:-0.3px}
     .nav-phone{color:${colors.accent};font-size:0.95rem;font-weight:600;text-decoration:none;border-bottom:2px solid ${colors.accent};padding-bottom:2px}
     /* HERO — centered editorial style */
@@ -3529,7 +3529,7 @@ function renderTemplate_cleanSplit({ colors, copy, config, images, brief, logoHt
     /* NAV */
     nav{background:#fff;border-bottom:1px solid #e8e4dc;padding:0;position:sticky;top:0;z-index:100}
     .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px;gap:32px}
-    .nav-logo{height:40px;width:auto;object-fit:contain}
+    .nav-logo{height:72px;width:auto;max-width:200px;object-fit:contain}
     .nav-brand{font-size:1.4rem;font-weight:700;color:#1a1a1a;letter-spacing:-0.5px}
     .nav-links{display:flex;gap:28px;list-style:none}
     .nav-links a{color:#555;font-size:0.88rem;text-decoration:none;font-weight:500;transition:color 0.2s}
@@ -3727,7 +3727,7 @@ function renderTemplate_highConvert({ colors, copy, config, images, brief, logoH
     /* NAV */
     nav{background:#fff;border-bottom:2px solid ${colors.accent};padding:0;position:sticky;top:0;z-index:100}
     .nav-inner{display:flex;align-items:center;justify-content:center;height:72px}
-    .nav-logo{height:52px;width:auto;object-fit:contain}
+    .nav-logo{height:72px;width:auto;max-width:200px;object-fit:contain}
     .nav-brand{font-size:1.5rem;font-weight:900;color:${colors.accent};letter-spacing:-0.5px;text-transform:uppercase}
     /* HERO — centered */
     .hero{padding:56px 0 40px;text-align:center;position:relative;background:#fff}
