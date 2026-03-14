@@ -4479,22 +4479,19 @@ async function runVideoProducer(task) {
 
   // ── Step 1: Generate video script with scene breakdown ──
   const scriptPrompt = `
-אתה כותב תסריט לסרטון שיווקי קצר (45-60 שניות) בסגנון TikTok/Reels.
+אתה כותב תסריט לסרטון שיווקי קצר (35-45 שניות) בסגנון TikTok/Reels.
 הסרטון: ${briefTitle}
 כיוון ויזואלי: ${visualBrief || "שיווקי, מודרני, מרתק"}
 שפה: עברית
 
-צור JSON בלבד עם המבנה הבא (6-8 סצנות):
+צור JSON בלבד עם המבנה הבא (5-6 סצנות):
 {
   "title": "כותרת הסרטון",
-  "total_duration": 55,
-  "voiceover_text": "הטקסט המלא של הקריינות - כל הטקסט ברציפות",
-  "music_prompt": "תיאור קצר באנגלית של המוזיקה המתאימה, למשל: epic cinematic background music, dramatic and inspiring",
   "scenes": [
     {
       "index": 0,
-      "duration": 7,
-      "text_overlay": "הטקסט שמופיע על המסך",
+      "scene_voiceover": "הטקסט שהקריין אומר בסצנה זו בלבד - 1-2 משפטים",
+      "text_overlay": "הטקסט הקצר שמופיע על המסך - 3-6 מילים בלבד",
       "background_type": "video",
       "pexels_query": "search query in English for pexels video",
       "description": "תיאור הסצנה"
@@ -4502,12 +4499,13 @@ async function runVideoProducer(task) {
   ]
 }
 
-חוקים:
+חוקים חשובים:
+- כל סצנה חייבת להכיל scene_voiceover — הטקסט שהקריין אומר רק בסצנה זו (1-2 משפטים קצרים)
+- הסצנות ביחד יוצרות נרטיב רציף ושלם
 - background_type יכול להיות "video" (מ-Pexels) או "image" (AI generated)
-- pexels_query: שאילתת חיפוש באנגלית ל-Pexels שקשורה ישירות לתוכן הסצנה והתעשייה (2-4 מילים). לנדל"ן: "luxury apartment interior", "modern building exterior", "real estate agent". לטכנולוגיה: "software developer coding", "tech office startup". לבריאות: "doctor hospital modern", "medical technology". תמיד תאם לנושא הספציפי!
+- pexels_query: שאילתת חיפוש באנגלית ל-Pexels שקשורה ישירות לתוכן הסצנה והתעשייה (2-4 מילים). לנדל"ן: "luxury apartment interior", "modern building exterior". לטכנולוגיה: "software developer coding". לבריאות: "doctor hospital modern". תמיד תאם לנושא!
 - אם background_type = "image" תן image_prompt באנגלית לייצור תמונה עם AI
-- text_overlay: הטקסט שיופיע על המסך - קצר, מקסימום 8 מילים לסצנה
-- voiceover_text: הטקסט המלא של הקריינות ברציפות
+- text_overlay: מקסימום 6 מילים — הדגשה של הרעיון המרכזי בסצנה
 - JSON בלבד, ללא markdown
 `.trim();
 
@@ -4531,12 +4529,23 @@ async function runVideoProducer(task) {
     throw new Error(`Failed to generate/parse video script: ${e.message}`);
   }
 
-  console.log(`📝 Script ready: ${scriptData.scenes?.length} scenes, voiceover: ${scriptData.voiceover_text?.length} chars`);
+  // Build full voiceover text from per-scene voiceover fields
+  const scenes = scriptData.scenes || [];
+  const fullVoiceoverText = scenes.map(s => s.scene_voiceover || "").filter(Boolean).join(" ");
+  // Estimate duration per scene: ~13 chars per second for Hebrew speech
+  const CHARS_PER_SECOND = 13;
+  const scenesWithDuration = scenes.map(s => {
+    const chars = (s.scene_voiceover || "").length;
+    const duration = Math.max(4, Math.ceil(chars / CHARS_PER_SECOND));
+    return { ...s, duration };
+  });
+  const totalDuration = scenesWithDuration.reduce((sum, s) => sum + s.duration, 0);
+  console.log(`📝 Script ready: ${scenesWithDuration.length} scenes, voiceover: ${fullVoiceoverText.length} chars, est. duration: ${totalDuration}s`);
 
   // ── Step 2: Generate voiceover with ElevenLabs ──
   let voiceoverUrl = null;
   let voiceoverBuffer = null;
-  if (ELEVENLABS_API_KEY && scriptData.voiceover_text) {
+  if (ELEVENLABS_API_KEY && fullVoiceoverText) {
     try {
       console.log(`🎙️ Generating voiceover...`);
       const ttsRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
@@ -4546,7 +4555,7 @@ async function runVideoProducer(task) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: scriptData.voiceover_text,
+          text: fullVoiceoverText,
           model_id: "eleven_v3",
           voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.0 },
         }),
@@ -4579,12 +4588,48 @@ async function runVideoProducer(task) {
     }
   }
 
-  // ── Step 3: Background music (disabled for now) ──
+  // ── Step 3: Background music — fetch once, store in PocketBase ──
   let musicUrl = null;
-  console.log(`🎵 Background music disabled`);
+  try {
+    // Check if we already have a music track stored in PocketBase
+    const existingMusic = await pb.collection("assets").getFirstListItem(
+      `asset_type = "background_music"`, {}
+    ).catch(() => null);
+
+    if (existingMusic?.file) {
+      musicUrl = `${PB_URL}/api/files/assets/${existingMusic.id}/${existingMusic.file}`;
+      console.log(`🎵 Using cached background music: ${musicUrl}`);
+    } else {
+      // Download a royalty-free track from Mixkit (allows hotlinking/download)
+      const MUSIC_SOURCES = [
+        "https://assets.mixkit.co/music/preview/mixkit-inspiring-cinematic-atmosphere-10-1.mp3",
+        "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130-1.mp3",
+        "https://assets.mixkit.co/music/preview/mixkit-serene-view-443-1.mp3",
+      ];
+      for (const src of MUSIC_SOURCES) {
+        try {
+          const musicRes = await fetch(src);
+          if (!musicRes.ok) continue;
+          const musicBuffer = Buffer.from(await musicRes.arrayBuffer());
+          const musicBlob = new Blob([musicBuffer], { type: "audio/mpeg" });
+          const musicForm = new FormData();
+          musicForm.append("file", musicBlob, "background_music.mp3");
+          musicForm.append("asset_type", "background_music");
+          const musicRecord = await pb.collection("assets").create(musicForm);
+          musicUrl = `${PB_URL}/api/files/assets/${musicRecord.id}/${musicRecord.file}`;
+          console.log(`🎵 Background music downloaded and cached: ${musicUrl}`);
+          break;
+        } catch (e) {
+          console.warn(`⚠️ Music source failed: ${src}`, e?.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠️ Background music setup failed:`, e?.message);
+  }
 
   // ── Step 4: Fetch Pexels videos / generate AI images per scene ──
-  const scenesWithMedia = await Promise.all(scriptData.scenes.map(async (scene, i) => {
+  const scenesWithMedia = await Promise.all(scenesWithDuration.map(async (scene, i) => {
     let mediaUrl = null;
     let mediaType = scene.background_type || "video";
 
@@ -4719,14 +4764,24 @@ async function runVideoProducer(task) {
         });
       }
 
-      // Background music disabled for now
+      // Add background music (low volume)
+      if (musicUrl) {
+        elements.push({
+          type: "audio",
+          track: 5,
+          time: 0,
+          duration: totalDuration,
+          source: musicUrl,
+          volume: "12%",
+        });
+      }
 
       const composition = {
         output_format: "mp4",
         width: 1080,
         height: 1920,
         frame_rate: 25,
-        duration: timeOffset,
+        duration: totalDuration,
         elements,
       };
 
