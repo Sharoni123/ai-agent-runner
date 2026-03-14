@@ -4568,37 +4568,16 @@ async function runVideoProducer(task) {
     }
   }
 
-  // ── Step 3: Generate background music with ElevenLabs ──
+  // ── Step 3: Background music (skipped — using free Pixabay music instead) ──
   let musicUrl = null;
-  if (ELEVENLABS_API_KEY && scriptData.music_prompt) {
-    try {
-      console.log(`🎵 Generating background music...`);
-      const musicRes = await fetch(`https://api.elevenlabs.io/v1/sound-generation`, {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: scriptData.music_prompt,
-          duration_seconds: scriptData.total_duration || 55,
-          prompt_influence: 0.3,
-        }),
-      });
-      if (!musicRes.ok) {
-        console.warn(`⚠️ Music generation failed: ${musicRes.status}`);
-      } else {
-        const musicBuffer = Buffer.from(await musicRes.arrayBuffer());
-        const musicFile = `music-${Date.now()}.mp3`;
-        const musicPath = path.join(PUBLIC_DIR, musicFile);
-        await fs.writeFile(musicPath, musicBuffer);
-        musicUrl = PUBLIC_ASSET_BASE_URL ? `${PUBLIC_ASSET_BASE_URL}/${musicFile}` : `/${musicFile}`;
-        console.log(`✅ Background music generated: ${musicUrl}`);
-      }
-    } catch (e) {
-      console.warn(`⚠️ Music generation failed:`, e?.message);
-    }
-  }
+  // We use a royalty-free music URL from Pixabay as background
+  const FREE_MUSIC_TRACKS = [
+    "https://cdn.pixabay.com/download/audio/2022/03/10/audio_0625db6893.mp3",
+    "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0c6ff1fce.mp3",
+    "https://cdn.pixabay.com/download/audio/2023/02/28/audio_b9c3d71398.mp3",
+  ];
+  musicUrl = FREE_MUSIC_TRACKS[Math.floor(Math.random() * FREE_MUSIC_TRACKS.length)];
+  console.log(`🎵 Using free background music track`);
 
   // ── Step 4: Fetch Pexels videos / generate AI images per scene ──
   const scenesWithMedia = await Promise.all(scriptData.scenes.map(async (scene, i) => {
@@ -4773,7 +4752,10 @@ async function runVideoProducer(task) {
       const ctData = await ctRes.json();
       const render = Array.isArray(ctData) ? ctData[0] : ctData;
       creatomateId = render?.id;
-      console.log(`⏳ Creatomate render started: ${creatomateId}`);
+      console.log(`⏳ Creatomate render started: ${creatomateId}, initial status: ${render?.status}`);
+      if (render?.status === "failed") {
+        throw new Error(`Creatomate render failed immediately: ${JSON.stringify(render?.error || render)}`);
+      }
 
       // ── Poll for completion ──
       let attempts = 0;
@@ -4784,7 +4766,10 @@ async function runVideoProducer(task) {
         const pollRes = await fetch(`https://api.creatomate.com/v1/renders/${creatomateId}`, {
           headers: { Authorization: `Bearer ${CREATOMATE_API_KEY}` },
         });
-        if (!pollRes.ok) continue;
+        if (!pollRes.ok) {
+          console.warn(`⚠️ Poll request failed: ${pollRes.status}`);
+          continue;
+        }
         const pollData = await pollRes.json();
         console.log(`⏳ Render status: ${pollData.status} (attempt ${attempts})`);
         if (pollData.status === "succeeded") {
@@ -4793,7 +4778,7 @@ async function runVideoProducer(task) {
           break;
         }
         if (pollData.status === "failed") {
-          throw new Error(`Creatomate render failed: ${JSON.stringify(pollData.error)}`);
+          throw new Error(`Creatomate render failed: ${JSON.stringify(pollData.error || pollData)}`);
         }
         // Update task with progress
         await pb.collection("tasks").update(task.id, {
