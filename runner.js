@@ -4522,7 +4522,7 @@ async function runVideoWithHeyGen(task) {
 
   // ── Poll for completion ──
   let videoUrl = null;
-  const maxAttempts = 60; // 60 × 10s = 10 minutes
+  const maxAttempts = 120; // 120 × 10s = 20 minutes
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await new Promise(r => setTimeout(r, 10000)); // 10s
     const pollRes = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${videoId}`, {
@@ -4542,7 +4542,8 @@ async function runVideoWithHeyGen(task) {
       break;
     }
     if (status === "failed") {
-      throw new Error(`HeyGen render failed: ${JSON.stringify(pollData?.data?.error || pollData)}`);
+      const errDetail = pollData?.data?.error?.message || pollData?.data?.error?.detail || JSON.stringify(pollData?.data?.error || pollData);
+      throw new Error(`HeyGen render failed: ${errDetail}`);
     }
 
     // Update task progress
