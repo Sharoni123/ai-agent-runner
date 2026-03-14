@@ -4504,7 +4504,7 @@ async function runVideoProducer(task) {
 
 חוקים:
 - background_type יכול להיות "video" (מ-Pexels) או "image" (AI generated)
-- pexels_query: שאילתת חיפוש באנגלית ל-Pexels (2-4 מילים, כמו "modern city skyline" או "business meeting office")
+- pexels_query: שאילתת חיפוש באנגלית ל-Pexels שקשורה ישירות לתוכן הסצנה והתעשייה (2-4 מילים). לנדל"ן: "luxury apartment interior", "modern building exterior", "real estate agent". לטכנולוגיה: "software developer coding", "tech office startup". לבריאות: "doctor hospital modern", "medical technology". תמיד תאם לנושא הספציפי!
 - אם background_type = "image" תן image_prompt באנגלית לייצור תמונה עם AI
 - text_overlay: הטקסט שיופיע על המסך - קצר, מקסימום 8 מילים לסצנה
 - voiceover_text: הטקסט המלא של הקריינות ברציפות
@@ -4547,7 +4547,7 @@ async function runVideoProducer(task) {
         },
         body: JSON.stringify({
           text: scriptData.voiceover_text,
-          model_id: "eleven_multilingual_v2",
+          model_id: "eleven_v3",
           voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.0 },
         }),
       });
