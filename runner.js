@@ -4511,15 +4511,20 @@ async function runVideoProducer(task) {
 - JSON בלבד, ללא markdown
 `.trim();
 
-  // Call Gemini for script generation
+  // Call OpenAI for script generation
   let scriptData;
   try {
-    const geminiRes = await gemini.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: [{ role: "user", parts: [{ text: scriptPrompt }] }],
-      config: { maxOutputTokens: 1200, temperature: 0.7 },
+    if (!openai) throw new Error("OPENAI_API_KEY is missing");
+    const scriptRes = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      max_tokens: 1500,
+      temperature: 0.7,
+      messages: [
+        { role: "system", content: "You are a video script writer. Return JSON only, no markdown, no explanation." },
+        { role: "user", content: scriptPrompt },
+      ],
     });
-    const scriptRaw = geminiRes.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const scriptRaw = scriptRes.choices?.[0]?.message?.content || "";
     const clean = scriptRaw.replace(/```json|```/g, "").trim();
     scriptData = JSON.parse(clean);
   } catch (e) {
