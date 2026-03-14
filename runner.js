@@ -28,6 +28,7 @@ const ELEVENLABS_API_KEY  = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB"; // fallback: Adam
 const PEXELS_API_KEY      = process.env.PEXELS_API_KEY || "";
 const CREATOMATE_API_KEY  = process.env.CREATOMATE_API_KEY || "";
+const HEYGEN_API_KEY      = process.env.HEYGEN_API_KEY || "";
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -4466,10 +4467,121 @@ Be concise and direct.`;
 }
 
 
+
+// ── HeyGen Video Agent Engine ─────────────────────────────────────────────────
+async function runVideoWithHeyGen(task) {
+  const briefTitle = getBriefTitle(task);
+  const input = getTaskInput(task);
+  const plannerBrief = input.planner_brief ?? null;
+  const visualBrief = input.previous_output?.video_brief || plannerBrief?.video_brief || "";
+  const language = input.language || "he";
+  const tone = getTone(task);
+  const audience = getAudience(task);
+  const cta = getCTA(task);
+
+  if (!HEYGEN_API_KEY) throw new Error("HEYGEN_API_KEY is missing");
+
+  // Build a rich prompt for HeyGen Video Agent
+  const langName = language === "he" ? "Hebrew" : language === "en" ? "English" : language;
+  const prompt = [
+    `Create a 45-second vertical marketing video (9:16) for: ${briefTitle}.`,
+    visualBrief ? `Visual direction: ${visualBrief}` : "",
+    `Target audience: ${audience || "general audience"}.`,
+    `Tone: ${tone || "professional and engaging"}.`,
+    `Call to action: ${cta || "contact us"}.`,
+    `Language: ${langName}. All text overlays and voiceover must be in ${langName}.`,
+    `No avatar. Use voiceover only.`,
+    `Style: cinematic, modern, engaging. Use motion graphics, AI-generated visuals, and stock footage as backgrounds.`,
+    `Keep it punchy — short scenes, bold text overlays, dramatic visuals.`,
+  ].filter(Boolean).join(" ");
+
+  console.log(`🎬 HeyGen Video Agent starting for: ${briefTitle}`);
+  console.log(`📝 Prompt: ${prompt.slice(0, 150)}...`);
+
+  // ── Submit to HeyGen Video Agent ──
+  const submitRes = await fetch("https://api.heygen.com/v1/video_agent/generate", {
+    method: "POST",
+    headers: {
+      "X-Api-Key": HEYGEN_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prompt }),
+  });
+
+  if (!submitRes.ok) {
+    const err = await submitRes.text();
+    throw new Error(`HeyGen submit failed (${submitRes.status}): ${err}`);
+  }
+
+  const submitData = await submitRes.json();
+  const videoId = submitData?.data?.video_id || submitData?.video_id;
+  if (!videoId) throw new Error(`HeyGen did not return a video_id: ${JSON.stringify(submitData)}`);
+
+  console.log(`⏳ HeyGen render started: ${videoId}`);
+
+  // ── Poll for completion ──
+  let videoUrl = null;
+  const maxAttempts = 60; // 60 × 10s = 10 minutes
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise(r => setTimeout(r, 10000)); // 10s
+    const pollRes = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${videoId}`, {
+      headers: { "X-Api-Key": HEYGEN_API_KEY },
+    });
+    if (!pollRes.ok) {
+      console.warn(`⚠️ HeyGen poll failed: ${pollRes.status}`);
+      continue;
+    }
+    const pollData = await pollRes.json();
+    const status = pollData?.data?.status || pollData?.status;
+    console.log(`⏳ HeyGen status: ${status} (attempt ${attempt})`);
+
+    if (status === "completed") {
+      videoUrl = pollData?.data?.video_url || pollData?.video_url;
+      console.log(`✅ HeyGen video ready: ${videoUrl}`);
+      break;
+    }
+    if (status === "failed") {
+      throw new Error(`HeyGen render failed: ${JSON.stringify(pollData?.data?.error || pollData)}`);
+    }
+
+    // Update task progress
+    await pb.collection("tasks").update(task.id, {
+      output_data: {
+        ok: true,
+        status: "rendering",
+        engine: "heygen",
+        progress: Math.round((attempt / maxAttempts) * 100),
+        heygen_video_id: videoId,
+        brief_title: briefTitle,
+      }
+    }).catch(() => {});
+  }
+
+  if (!videoUrl) throw new Error("HeyGen render timed out after 10 minutes");
+
+  return {
+    ok: true,
+    brief_title: briefTitle,
+    video_url: videoUrl,
+    engine: "heygen",
+    heygen_video_id: videoId,
+    prompt,
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Video Producer Agent ──────────────────────────────────────────────────────
 async function runVideoProducer(task) {
   const input = getTaskInput(task);
   const briefTitle = getBriefTitle(task);
+
+  // Check which engine to use
+  const engine = normalizeText(input.video_engine || input.planner_brief?.video_engine, "creatomate");
+  if (engine === "heygen") {
+    console.log(`🎬 Using HeyGen engine for: ${briefTitle}`);
+    return await runVideoWithHeyGen(task);
+  }
+  console.log(`🎬 Using Creatomate engine for: ${briefTitle}`);
   const plannerBrief = input.planner_brief ?? null;
   const visualBrief = input.previous_output?.video_brief || plannerBrief?.video_brief || "";
   const language = input.language || "he";
