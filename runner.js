@@ -1449,6 +1449,15 @@ async function generateVisualDirectionWithAI(task) {
     ? JSON.stringify(plannerBrief, null, 2)
     : "אין";
 
+  // Analyze inspiration URLs with Gemini vision
+  let inspirationNotes = null;
+  if (assets.inspiration.length > 0) {
+    inspirationNotes = await analyzeInspirationUrls(assets.inspiration).catch(e => {
+      console.warn("⚠️ Inspiration analysis failed:", e?.message);
+      return null;
+    });
+  }
+
   // Visual style directive
   const visualStyleInput = normalizeText(getTaskInput(task).visual_style || plannerBrief?.visual_style, "auto");
   const VISUAL_STYLE_DIRECTIVES = {
@@ -1484,6 +1493,7 @@ async function generateVisualDirectionWithAI(task) {
     `מידע נוסף:\n${additionalContext || "אין"}`,
     `נקודות מפתח:\n${keyPoints.length ? keyPoints.join("\n") : "אין"}`,
     `Assets שסופקו:\n${assetsText}`,
+    inspirationNotes ? `\n\nניתוח ויזואלי של אתרי ההשראה (חובה להתייחס):\n${inspirationNotes}` : "",
     `Planner brief:\n${plannerBriefText}`,
     visualStyleDirective ? `\n${visualStyleDirective}` : "",
     "החזר JSON בלבד עם השדות:",
@@ -2405,7 +2415,7 @@ ${banner.disclaimer}`;
 }
 
 // ─── NEW: Compose a full banner using Gemini (Hebrew text baked in) ───────────
-async function composeBannerWithGemini({ briefTitle, banner, generatedImages, assets, modelOverride }) {
+async function composeBannerWithGemini({ briefTitle, banner, generatedImages, assets, modelOverride, inspirationNotes = null }) {
   if (!gemini) throw new Error("GEMINI_API_KEY is missing — cannot compose banner with Gemini");
   const effectiveModel = modelOverride || GEMINI_BANNER_MODEL;
 
@@ -2459,7 +2469,14 @@ async function composeBannerWithGemini({ briefTitle, banner, generatedImages, as
       },
     });
   }
-  parts.push({ text: prompt });
+  // Add inspiration design notes to the prompt if available
+  const fullPrompt = inspirationNotes
+    ? `${prompt}
+
+הנחיית עיצוב מאתרי השראה (חובה לשלב בבאנר):
+${inspirationNotes}`
+    : prompt;
+  parts.push({ text: fullPrompt });
 
   const contents = [{ role: "user", parts }];
 
@@ -2561,6 +2578,16 @@ async function runBannerComposer(task) {
   const assets          = await getClientAssets(task);
   const briefTitle      = getBriefTitle(task);
 
+  // Analyze inspiration URLs for banner style reference
+  let inspirationNotes = null;
+  if (assets.inspiration?.length > 0) {
+    inspirationNotes = await analyzeInspirationUrls(assets.inspiration).catch(e => {
+      console.warn("⚠️ Banner inspiration analysis failed:", e?.message);
+      return null;
+    });
+    if (inspirationNotes) console.log(`🎨 Banner composer has inspiration design notes`);
+  }
+
   if (!finalBanners.length) {
     console.error("⚠️ banner_composer: No final_banners found");
     return buildBannerComposerFallback(task, related);
@@ -2582,7 +2609,7 @@ async function runBannerComposer(task) {
           console.log(`🔄 Retrying primary Gemini for "${bannerName}" (attempt ${attempt}/3) after ${delayMs/1000}s...`);
           await new Promise(r => setTimeout(r, delayMs));
         }
-        const composed = await composeBannerWithGemini({ briefTitle, banner, generatedImages, assets });
+        const composed = await composeBannerWithGemini({ briefTitle, banner, generatedImages, assets, inspirationNotes });
         composed_banners.push(composed);
         console.log(`✅ Banner composed by primary Gemini: ${bannerName} (attempt ${attempt})`);
         success = true;
@@ -2604,7 +2631,7 @@ async function runBannerComposer(task) {
         }
         const composed = await composeBannerWithGemini({
           briefTitle, banner, generatedImages, assets,
-          modelOverride: FALLBACK_GEMINI_MODEL,
+          inspirationNotes, modelOverride: FALLBACK_GEMINI_MODEL,
         });
         composed_banners.push({ ...composed, generator: "gemini_fallback_model" });
         console.log(`✅ Banner composed by fallback Gemini model: ${bannerName}`);
@@ -4569,6 +4596,103 @@ async function runVideoWithHeyGen(task) {
     heygen_video_id: videoId,
     prompt,
   };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ── Inspiration URL Analyzer ──────────────────────────────────────────────────
+// Fetches inspiration URLs, extracts main images, passes to Gemini vision,
+// returns design notes that the visual director can use.
+async function analyzeInspirationUrls(inspirationUrls) {
+  if (!inspirationUrls || inspirationUrls.length === 0) return null;
+  if (!gemini) return null;
+
+  console.log(`🔍 Analyzing ${inspirationUrls.length} inspiration URL(s)...`);
+
+  // Step 1: For each URL, extract the main image
+  const imageBuffers = [];
+  for (const url of inspirationUrls.slice(0, 3)) { // max 3 to avoid overloading
+    try {
+      // Fetch the HTML and look for og:image or twitter:image
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; HQ-Bot/1.0)" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+
+      const html = await res.text();
+
+      // Extract og:image or twitter:image
+      const ogMatch = html.match(/<meta[^>]*(?:property=["']og:image["']|name=["']twitter:image["'])[^>]*content=["']([^"']+)["']/i)
+        || html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*(?:property=["']og:image["']|name=["']twitter:image["'])/i);
+
+      let imageUrl = ogMatch?.[1] || null;
+
+      // If no og:image, try to find first large image src
+      if (!imageUrl) {
+        const imgMatch = html.match(/<img[^>]*src=["']([^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i);
+        if (imgMatch) {
+          imageUrl = imgMatch[1];
+          // Make absolute if relative
+          if (imageUrl.startsWith("/")) {
+            const urlObj = new URL(url);
+            imageUrl = `${urlObj.origin}${imageUrl}`;
+          }
+        }
+      }
+
+      if (!imageUrl) {
+        console.log(`⚠️ No image found for: ${url}`);
+        continue;
+      }
+
+      // Fetch the image
+      const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+      if (!imgRes.ok) continue;
+      const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+      const mimeType = contentType.split(";")[0].trim();
+      if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) continue;
+
+      imageBuffers.push({ url, imageUrl, data: imgBuffer.toString("base64"), mimeType });
+      console.log(`✅ Inspiration image fetched from: ${url}`);
+    } catch (e) {
+      console.warn(`⚠️ Failed to fetch inspiration from ${url}:`, e?.message);
+    }
+  }
+
+  if (imageBuffers.length === 0) return null;
+
+  // Step 2: Pass images to Gemini vision for design analysis
+  try {
+    const parts = [
+      {
+        text: `אתה מנתח עיצוב ויזואלי. בדוק את התמונות האלה מאתרי השראה ותן ניתוח עיצובי מפורט:
+- פלטת צבעים מרכזית (hex codes אם אפשר)
+- סגנון טיפוגרפיה (serif/sans-serif, bold/light, מודרני/קלאסי)
+- אווירה כללית ומודל עיצובי (יוקרתי/מינימליסטי/בולד/חם וכו')
+- מרכיבים עיצוביים בולטים (גרדיאנטים, shadow, spacing, layout)
+- המלצה: איך לשלב את הסגנון הזה בקמפיין שיווקי?
+תן תשובה קצרה ומעשית בעברית.`,
+      },
+      ...imageBuffers.map(img => ({
+        inlineData: { mimeType: img.mimeType, data: img.data },
+      })),
+    ];
+
+    const response = await gemini.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts }],
+      config: { maxOutputTokens: 600 },
+    });
+
+    const designNotes = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    console.log(`✅ Inspiration analysis complete (${designNotes.length} chars)`);
+    return designNotes || null;
+  } catch (e) {
+    console.warn(`⚠️ Gemini vision analysis failed:`, e?.message);
+    return null;
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
