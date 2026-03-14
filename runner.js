@@ -4579,16 +4579,9 @@ async function runVideoProducer(task) {
     }
   }
 
-  // ── Step 3: Background music (skipped — using free Pixabay music instead) ──
+  // ── Step 3: Background music (disabled for now) ──
   let musicUrl = null;
-  // We use a royalty-free music URL from Pixabay as background
-  const FREE_MUSIC_TRACKS = [
-    "https://cdn.pixabay.com/download/audio/2022/03/10/audio_0625db6893.mp3",
-    "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0c6ff1fce.mp3",
-    "https://cdn.pixabay.com/download/audio/2023/02/28/audio_b9c3d71398.mp3",
-  ];
-  musicUrl = FREE_MUSIC_TRACKS[Math.floor(Math.random() * FREE_MUSIC_TRACKS.length)];
-  console.log(`🎵 Using free background music track`);
+  console.log(`🎵 Background music disabled`);
 
   // ── Step 4: Fetch Pexels videos / generate AI images per scene ──
   const scenesWithMedia = await Promise.all(scriptData.scenes.map(async (scene, i) => {
@@ -4726,16 +4719,7 @@ async function runVideoProducer(task) {
         });
       }
 
-      // Add background music (lower volume)
-      if (musicUrl) {
-        elements.push({
-          type: "audio",
-          track: 5,
-          time: 0,
-          source: musicUrl,
-          volume: "15%",
-        });
-      }
+      // Background music disabled for now
 
       const composition = {
         output_format: "mp4",
